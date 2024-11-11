@@ -27,5 +27,13 @@ WORKDIR /var/www/html/wp-content/plugins/video-fact-checker
 # Install plugin dependencies
 RUN composer install --no-dev --optimize-autoloader
 
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html/wp-content
+# Set correct permissions
+RUN chown -R www-data:www-data /var/www/html && \
+    find /var/www/html -type d -exec chmod 755 {} \; && \
+    find /var/www/html -type f -exec chmod 644 {} \; && \
+    chmod 755 /var/www/html/wp-content/plugins/video-fact-checker/vendor/bin/* || true
+
+# Make upload directory writable
+RUN mkdir -p /var/www/html/wp-content/uploads && \
+    chown -R www-data:www-data /var/www/html/wp-content/uploads && \
+    chmod -R 755 /var/www/html/wp-content/uploads
