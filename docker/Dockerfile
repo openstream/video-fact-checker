@@ -1,3 +1,4 @@
+# Use official WordPress image as base
 FROM wordpress:latest
 
 # Install system dependencies
@@ -9,7 +10,7 @@ RUN apt-get update && apt-get install -y \
 # Install yt-dlp
 RUN pip3 install --upgrade yt-dlp
 
-# Install PHP extensions needed by WordPress and the plugin
+# Install PHP extensions
 RUN docker-php-ext-install \
     pdo \
     pdo_mysql \
@@ -18,22 +19,29 @@ RUN docker-php-ext-install \
 # Install Composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
+# Ensure WordPress files are in place
+WORKDIR /var/www/html
+
+# Copy WordPress files from the image's source
+RUN cp -r /usr/src/wordpress/* /var/www/html/
+
+# Create and set plugin directory
+RUN mkdir -p /var/www/html/wp-content/plugins/video-fact-checker
+
 # Copy plugin files
 COPY . /var/www/html/wp-content/plugins/video-fact-checker/
 
-# Set working directory
-WORKDIR /var/www/html/wp-content/plugins/video-fact-checker
-
 # Install plugin dependencies
+WORKDIR /var/www/html/wp-content/plugins/video-fact-checker
 RUN composer install --no-dev --optimize-autoloader
 
-# Set correct permissions
+# Set permissions
 RUN chown -R www-data:www-data /var/www/html && \
     find /var/www/html -type d -exec chmod 755 {} \; && \
-    find /var/www/html -type f -exec chmod 644 {} \; && \
-    chmod 755 /var/www/html/wp-content/plugins/video-fact-checker/vendor/bin/* || true
+    find /var/www/html -type f -exec chmod 644 {} \;
 
-# Make upload directory writable
-RUN mkdir -p /var/www/html/wp-content/uploads && \
-    chown -R www-data:www-data /var/www/html/wp-content/uploads && \
-    chmod -R 755 /var/www/html/wp-content/uploads
+# Enable Apache rewrite module
+RUN a2enmod rewrite
+
+# Return to main directory
+WORKDIR /var/www/html
