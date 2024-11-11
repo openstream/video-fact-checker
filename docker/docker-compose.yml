@@ -1,0 +1,34 @@
+version: '3'
+
+services:
+  wordpress:
+    build: .
+    ports:
+      - "80:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress_password
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DEBUG: 1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_DEBUG_LOG', true);
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./logs:/var/www/html/wp-content/debug.log
+    depends_on:
+      - db
+
+  db:
+    image: mariadb:10.4
+    environment:
+      MYSQL_ROOT_PASSWORD: somewordpress
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress_password
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  wordpress_data:
+  db_data:

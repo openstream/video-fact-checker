@@ -1,0 +1,14 @@
+{
+    "name": "nickweisser/video-fact-checker",
+    "description": "WordPress plugin to transcribe and fact-check videos using OpenAI APIs",
+    "type": "wordpress-plugin",
+    "require": {
+        "php": ">=7.4",
+        "erusev/parsedown": "^1.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "VideoFactChecker\\": "includes/"
+        }
+    }
+}
