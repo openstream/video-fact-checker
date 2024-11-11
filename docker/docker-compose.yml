@@ -11,7 +11,7 @@ services:
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-wordpress}
       WORDPRESS_DB_NAME: wordpress
     volumes:
-      - wordpress:/var/www/html
+      - wordpress:/workspace
     depends_on:
       - db
 
