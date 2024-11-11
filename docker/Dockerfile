@@ -27,8 +27,10 @@ RUN mkdir -p /workspace/wp-content/plugins
 # Download and extract latest WordPress to workspace
 WORKDIR /workspace
 RUN wget https://wordpress.org/latest.tar.gz \
-    && tar -xzf latest.tar.gz --strip-components=1 \
+    && tar -xzf latest.tar.gz \
     && rm latest.tar.gz \
+    && mv wordpress/* . \
+    && rmdir wordpress \
     && echo "WordPress files:" \
     && ls -la /workspace
 
@@ -44,9 +46,5 @@ RUN chown -R www-data:www-data /workspace
 
 # Enable Apache rewrite
 RUN a2enmod rewrite
-
-# Configure Apache to use /workspace
-RUN sed -i 's|/var/www/html|/workspace|g' /etc/apache2/sites-available/000-default.conf
-
 # Return to workspace
 WORKDIR /workspace
