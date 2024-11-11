@@ -28,7 +28,9 @@ RUN mkdir -p /workspace/wp-content/plugins
 WORKDIR /workspace
 RUN wget https://wordpress.org/latest.tar.gz \
     && tar -xzf latest.tar.gz --strip-components=1 \
-    && rm latest.tar.gz
+    && rm latest.tar.gz \
+    && echo "WordPress files:" \
+    && ls -la /workspace
 
 # Copy plugin files to correct location
 COPY . /workspace/wp-content/plugins/video-fact-checker/
