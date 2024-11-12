@@ -33,7 +33,7 @@ Logging can be enabled/disabled via:
 - PHP 7.4 or higher
 - WordPress 5.0 or higher
 - OpenAI API key
-- DDEV environment with ffmpeg and yt-dlp installed
+- Local or hosting environment with ffmpeg and yt-dlp installed
 
 ## License
 

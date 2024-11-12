@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     libzip-dev \
     wget \
+    tree \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
@@ -21,11 +22,10 @@ RUN pip3 install --upgrade yt-dlp
 # Install Composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# Create workspace directory
-RUN mkdir -p /workspace/wp-content/plugins
+# Set working directory
+WORKDIR /workspace
 
 # Download and extract latest WordPress to workspace
-WORKDIR /workspace
 RUN wget https://wordpress.org/latest.tar.gz \
     && tar -xzf latest.tar.gz \
     && rm latest.tar.gz \
@@ -34,17 +34,9 @@ RUN wget https://wordpress.org/latest.tar.gz \
     && echo "WordPress files:" \
     && ls -la /workspace
 
-# Copy plugin files to correct location
+# Copy plugin files to the WordPress plugins directory
 COPY . /workspace/wp-content/plugins/video-fact-checker/
 
 # Install plugin dependencies
 WORKDIR /workspace/wp-content/plugins/video-fact-checker
-RUN composer install --no-dev --optimize-autoloader
-
-# Set permissions
-RUN chown -R www-data:www-data /workspace
-
-# Enable Apache rewrite
-RUN a2enmod rewrite
-# Return to workspace
-WORKDIR /workspace
+RUN
