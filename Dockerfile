@@ -6,6 +6,7 @@ RUN echo "Updating package lists..." \
     && echo "Installing system dependencies..." \
     && apt-get install -y \
         python3-pip \
+        python3-venv \
         ffmpeg \
         libzip-dev \
         wget \
@@ -22,10 +23,12 @@ RUN echo "Installing PHP extensions..." \
         zip \
     && echo "PHP extensions installed."
 
-# Install yt-dlp
-RUN echo "Installing yt-dlp..." \
-    && pip3 install --upgrade yt-dlp \
-    && echo "yt-dlp installed."
+# Set up a virtual environment and install yt-dlp
+RUN echo "Setting up virtual environment for yt-dlp..." \
+    && python3 -m venv /opt/yt-dlp-venv \
+    && /opt/yt-dlp-venv/bin/pip install --upgrade pip \
+    && /opt/yt-dlp-venv/bin/pip install yt-dlp \
+    && echo "yt-dlp installed in virtual environment."
 
 # Install Composer
 RUN echo "Installing Composer..." \
@@ -47,9 +50,7 @@ RUN echo "Downloading WordPress..." \
     && ls -la /workspace
 
 # Copy plugin files to the WordPress plugins directory
-RUN echo "Copying plugin files..." \
-    && COPY . /workspace/wp-content/plugins/video-fact-checker/ \
-    && echo "Plugin files copied."
+COPY . /workspace/wp-content/plugins/video-fact-checker/
 
 # Install plugin dependencies
 WORKDIR /workspace/wp-content/plugins/video-fact-checker
