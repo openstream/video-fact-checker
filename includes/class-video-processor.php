@@ -108,7 +108,7 @@ class VideoProcessor {
         
         // Add cookies only for YouTube URLs
         if ($this->is_youtube_url($url)) {
-            $cookies_file = plugin_dir_path(__FILE__) . '../cookies.txt';
+            $cookies_file = plugin_dir_path(dirname(__FILE__)) . 'cookies.txt';
             $this->logger->log("Checking for cookies file at: " . $cookies_file);
             
             if (file_exists($cookies_file)) {

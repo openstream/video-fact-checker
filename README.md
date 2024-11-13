@@ -33,7 +33,11 @@ Logging can be enabled/disabled via:
 - PHP 7.4 or higher
 - WordPress 5.0 or higher
 - OpenAI API key
-- ffmpeg, yt-dlp and browser-cookie3 installed on your server
+- Local or hosting environment with ffmpeg and yt-dlp installed
+- For YouTube videos on servers:
+  - A valid cookies.txt file in the plugin root directory (`wp-content/plugins/video-fact-checker/cookies.txt`)
+
+Note: You may need to update the cookies.txt file periodically when the authentication expires.
 
 ## License
 
