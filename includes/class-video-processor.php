@@ -95,100 +95,52 @@ class VideoProcessor {
     }
     
     private function get_video_info($url) {
-        // Validate URL first
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new \Exception('Invalid URL format provided: ' . $url);
-        }
-
-        // Log the URL we're processing
-        $this->logger->log("Processing URL: " . $url);
-
         if ($this->is_youtube_url($url)) {
-            // Get absolute path to plugin root
-            $cookies_file = plugin_dir_path(dirname(__FILE__)) . 'cookies.txt';
-            $this->logger->log("Looking for cookies file at: " . $cookies_file);
+            // Try both possible paths
+            $paths = [
+                plugin_dir_path(dirname(__FILE__)) . 'cookies.txt',  // From includes directory
+                WP_PLUGIN_DIR . '/video-fact-checker/cookies.txt'    // Absolute path
+            ];
             
-            // Debug file existence and permissions
-            if (file_exists($cookies_file)) {
-                $this->logger->log("✓ File exists");
-                $this->logger->log("File size: " . filesize($cookies_file) . " bytes");
-                $this->logger->log("Permissions: " . substr(sprintf('%o', fileperms($cookies_file)), -4));
-                $this->logger->log("Owner: " . posix_getpwuid(fileowner($cookies_file))['name']);
-                $this->logger->log("Group: " . posix_getgrgid(filegroup($cookies_file))['name']);
+            $this->logger->log("Checking possible cookie file locations:");
+            foreach ($paths as $cookies_file) {
+                $this->logger->log("Checking path: " . $cookies_file);
                 
-                if (is_readable($cookies_file)) {
-                    $this->logger->log("✓ File is readable");
-                    $content = file_get_contents($cookies_file);
-                    $this->logger->log("Content preview: " . substr($content, 0, 100));
+                if (file_exists($cookies_file)) {
+                    $this->logger->log("✓ Found cookies file at: " . $cookies_file);
+                    $this->logger->log("File size: " . filesize($cookies_file) . " bytes");
+                    $this->logger->log("Permissions: " . substr(sprintf('%o', fileperms($cookies_file)), -4));
+                    $this->logger->log("Owner: " . posix_getpwuid(fileowner($cookies_file))['name']);
+                    $this->logger->log("Group: " . posix_getgrgid(filegroup($cookies_file))['name']);
                     
-                    $command = sprintf('yt-dlp --cookies %s --dump-json %s 2>&1',
-                        escapeshellarg($cookies_file),
-                        escapeshellarg($url)
-                    );
+                    if (is_readable($cookies_file)) {
+                        $this->logger->log("✓ File is readable");
+                        $content = file_get_contents($cookies_file);
+                        $this->logger->log("Content preview: " . substr($content, 0, 100));
+                        
+                        $command = sprintf('yt-dlp --cookies %s --dump-json %s 2>&1',
+                            escapeshellarg($cookies_file),
+                            escapeshellarg($url)
+                        );
+                        $this->logger->log("Using cookies file for authentication");
+                        return $command;
+                    } else {
+                        $this->logger->log("✗ File is not readable");
+                    }
                 } else {
-                    $this->logger->log("✗ File is not readable");
-                    throw new \Exception(
-                        'YouTube authentication failed: cookies.txt exists but is not readable. ' .
-                        'Please check file permissions at: ' . $cookies_file
-                    );
+                    $this->logger->log("✗ File not found at: " . $cookies_file);
                 }
-            } else {
-                $this->logger->log("✗ File not found");
-                throw new \Exception(
-                    'YouTube authentication failed: cookies.txt not found. ' .
-                    'Expected location: ' . $cookies_file
-                );
-            }
-        } else {
-            $command = sprintf('yt-dlp --dump-json %s 2>&1', escapeshellarg($url));
-        }
-        
-        $this->logger->log("Executing command: " . preg_replace('/--cookies\s+[^\s]+/', '--cookies [REDACTED]', $command));
-        
-        exec($command, $output, $return_var);
-        
-        if ($return_var !== 0) {
-            $error_output = implode("\n", $output);
-            $this->logger->log("yt-dlp error output: $error_output", 'error');
-            
-            // Enhanced error message for YouTube authentication issues
-            if (strpos($error_output, 'Sign') !== false) {
-                throw new \Exception(
-                    'YouTube authentication failed. Please ensure cookies.txt is present and contains valid cookies'
-                );
             }
             
-            throw new \Exception(sprintf(
-                'Failed to get video information. Exit code: %d. Error: %s',
-                $return_var,
-                $error_output
-            ));
+            // If we get here, no valid cookies file was found
+            throw new \Exception(
+                'YouTube authentication failed: No readable cookies.txt found. ' .
+                'Checked paths: ' . implode(', ', $paths)
+            );
         }
         
-        if (empty($output)) {
-            throw new \Exception('No video information received');
-        }
-        
-        // Try to find the JSON data in the output
-        $json_line = null;
-        foreach ($output as $line) {
-            if ($this->isValidJSON($line)) {
-                $json_line = $line;
-                break;
-            }
-        }
-        
-        if ($json_line === null) {
-            $this->logger->log("Raw output: " . implode("\n", $output), 'error');
-            throw new \Exception('No valid JSON found in video information');
-        }
-        
-        $info = json_decode($json_line, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \Exception('Invalid video information received: ' . json_last_error_msg());
-        }
-        
-        return $info;
+        // Non-YouTube URL
+        return sprintf('yt-dlp --dump-json %s 2>&1', escapeshellarg($url));
     }
 
     private function check_dependencies() {
