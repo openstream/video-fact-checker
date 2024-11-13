@@ -20,13 +20,34 @@ class VideoProcessor {
         try {
             $this->logger->log("=== Starting download with debug info ===");
             
-            // Create unique output filename
-            $output_dir = plugin_dir_path(dirname(__FILE__)) . 'temp/';
+            // Create and verify temp directory
+            $output_dir = plugin_dir_path(dirname(__FILE__)) . 'temp';
+            $this->logger->log("Checking temp directory: " . $output_dir);
+            
             if (!file_exists($output_dir)) {
-                mkdir($output_dir, 0755, true);
+                $this->logger->log("Creating temp directory");
+                if (!mkdir($output_dir, 0755, true)) {
+                    throw new \Exception("Failed to create temp directory: " . $output_dir);
+                }
             }
             
-            $output_file = $output_dir . uniqid('audio_') . '.%(ext)s';
+            // Verify directory permissions
+            $perms = substr(sprintf('%o', fileperms($output_dir)), -4);
+            $this->logger->log("Directory permissions: " . $perms);
+            
+            $owner = posix_getpwuid(fileowner($output_dir));
+            $group = posix_getgrgid(filegroup($output_dir));
+            $this->logger->log("Directory owner: " . $owner['name']);
+            $this->logger->log("Directory group: " . $group['name']);
+            
+            // Ensure directory is writable
+            if (!is_writable($output_dir)) {
+                throw new \Exception("Temp directory is not writable: " . $output_dir);
+            }
+            
+            // Create unique filename
+            $filename = uniqid('audio_') . '.%(ext)s';
+            $output_file = $output_dir . '/' . $filename;
             $this->logger->log("Output file template: " . $output_file);
             
             // Verify YouTube URL detection
