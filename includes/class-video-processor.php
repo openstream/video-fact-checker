@@ -128,51 +128,16 @@ class VideoProcessor {
     
     private function get_video_info($url) {
         if ($this->is_youtube_url($url)) {
-            // Try both possible paths
-            $paths = [
-                plugin_dir_path(dirname(__FILE__)) . 'cookies.txt',  // From includes directory
-                WP_PLUGIN_DIR . '/video-fact-checker/cookies.txt'    // Absolute path
-            ];
-            
-            $this->logger->log("Checking possible cookie file locations:");
-            foreach ($paths as $cookies_file) {
-                $this->logger->log("Checking path: " . $cookies_file);
-                
-                if (file_exists($cookies_file)) {
-                    $this->logger->log("✓ Found cookies file at: " . $cookies_file);
-                    $this->logger->log("File size: " . filesize($cookies_file) . " bytes");
-                    $this->logger->log("Permissions: " . substr(sprintf('%o', fileperms($cookies_file)), -4));
-                    $this->logger->log("Owner: " . posix_getpwuid(fileowner($cookies_file))['name']);
-                    $this->logger->log("Group: " . posix_getgrgid(filegroup($cookies_file))['name']);
-                    
-                    if (is_readable($cookies_file)) {
-                        $this->logger->log("✓ File is readable");
-                        $content = file_get_contents($cookies_file);
-                        $this->logger->log("Content preview: " . substr($content, 0, 100));
-                        
-                        $command = sprintf('yt-dlp --cookies %s --dump-json %s 2>&1',
-                            escapeshellarg($cookies_file),
-                            escapeshellarg($url)
-                        );
-                        $this->logger->log("Using cookies file for authentication");
-                        return $command;
-                    } else {
-                        $this->logger->log("✗ File is not readable");
-                    }
-                } else {
-                    $this->logger->log("✗ File not found at: " . $cookies_file);
-                }
-            }
-            
-            // If we get here, no valid cookies file was found
-            throw new \Exception(
-                'YouTube authentication failed: No readable cookies.txt found. ' .
-                'Checked paths: ' . implode(', ', $paths)
+            $cookies_file = $this->check_cookies_file($url);
+            $command = sprintf('yt-dlp --cookies %s --dump-json %s 2>&1',
+                escapeshellarg($cookies_file),
+                escapeshellarg($url)
             );
+        } else {
+            $command = sprintf('yt-dlp --dump-json %s 2>&1', escapeshellarg($url));
         }
         
-        // Non-YouTube URL
-        return sprintf('yt-dlp --dump-json %s 2>&1', escapeshellarg($url));
+        return $command;
     }
 
     private function check_dependencies() {
@@ -215,5 +180,48 @@ class VideoProcessor {
         }
         
         return false;
+    }
+
+    private function check_cookies_file($url) {
+        if (!$this->is_youtube_url($url)) {
+            return null;
+        }
+
+        // Try both possible paths
+        $paths = [
+            plugin_dir_path(dirname(__FILE__)) . 'cookies.txt',  // From includes directory
+            WP_PLUGIN_DIR . '/video-fact-checker/cookies.txt',   // Absolute path
+            '/var/www/html/wp-content/plugins/video-fact-checker/cookies.txt' // Hardcoded path for testing
+        ];
+        
+        $this->logger->log("DEBUG: Checking possible cookie file locations:");
+        
+        foreach ($paths as $cookies_file) {
+            $this->logger->log("DEBUG: Checking path: " . $cookies_file);
+            
+            if (file_exists($cookies_file)) {
+                $this->logger->log("DEBUG: ✓ Found cookies file at: " . $cookies_file);
+                $this->logger->log("DEBUG: File size: " . filesize($cookies_file) . " bytes");
+                $this->logger->log("DEBUG: Permissions: " . substr(sprintf('%o', fileperms($cookies_file)), -4));
+                $this->logger->log("DEBUG: Owner: " . posix_getpwuid(fileowner($cookies_file))['name']);
+                $this->logger->log("DEBUG: Group: " . posix_getgrgid(filegroup($cookies_file))['name']);
+                
+                if (is_readable($cookies_file)) {
+                    $this->logger->log("DEBUG: ✓ File is readable");
+                    $content = file_get_contents($cookies_file);
+                    $this->logger->log("DEBUG: Content preview: " . substr($content, 0, 100));
+                    return $cookies_file;
+                } else {
+                    $this->logger->log("DEBUG: ✗ File is not readable");
+                }
+            } else {
+                $this->logger->log("DEBUG: ✗ File not found at: " . $cookies_file);
+            }
+        }
+        
+        throw new \Exception(
+            'YouTube authentication failed: No readable cookies.txt found. ' .
+            'Checked paths: ' . implode(', ', $paths)
+        );
     }
 }
