@@ -36,12 +36,26 @@ class VideoProcessor {
             $filename = uniqid('vfc_') . '.mp3';
             $output_file = $this->upload_dir . '/' . $filename;
 
-            // Download and convert to MP3
-            $command = sprintf(
-                'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
-                escapeshellarg($output_file),
-                escapeshellarg($url)
-            );
+            // Base command without cookies
+            $command = 'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1';
+            
+            // Add cookies only for YouTube URLs
+            if ($this->is_youtube_url($url)) {
+                $cookies_file = plugin_dir_path(__FILE__) . '../cookies.txt';
+                if (file_exists($cookies_file)) {
+                    $command = 'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1';
+                    $command = sprintf($command,
+                        escapeshellarg($cookies_file),
+                        escapeshellarg($output_file),
+                        escapeshellarg($url)
+                    );
+                }
+            } else {
+                $command = sprintf($command,
+                    escapeshellarg($output_file),
+                    escapeshellarg($url)
+                );
+            }
 
             $this->logger->log("Executing download command");
             exec($command, $output, $return_var);
@@ -81,11 +95,37 @@ class VideoProcessor {
     }
     
     private function get_video_info($url) {
-        // Use yt-dlp to get video info
-        $command = sprintf(
-            'yt-dlp --dump-json %s 2>&1',
-            escapeshellarg($url)
-        );
+        // Validate URL first
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new \Exception('Invalid URL format provided: ' . $url);
+        }
+
+        // Log the URL we're processing
+        $this->logger->log("Processing URL: " . $url);
+
+        // Base command without cookies
+        $command = 'yt-dlp --dump-json %s 2>&1';
+        
+        // Add cookies only for YouTube URLs
+        if ($this->is_youtube_url($url)) {
+            $cookies_file = plugin_dir_path(__FILE__) . '../cookies.txt';
+            if (file_exists($cookies_file)) {
+                $this->logger->log("Using cookies file for YouTube URL");
+                $command = 'yt-dlp --cookies %s --dump-json %s 2>&1';
+                $command = sprintf($command, 
+                    escapeshellarg($cookies_file),
+                    escapeshellarg($url)
+                );
+            } else {
+                $this->logger->log("Cookies file not found at: " . $cookies_file);
+                $command = sprintf($command, escapeshellarg($url));
+            }
+        } else {
+            $command = sprintf($command, escapeshellarg($url));
+        }
+        
+        // Log the final command (with sensitive info redacted)
+        $this->logger->log("Executing command: " . preg_replace('/--cookies\s+[^\s]+/', '--cookies [REDACTED]', $command));
         
         exec($command, $output, $return_var);
         
@@ -147,5 +187,23 @@ class VideoProcessor {
     private function isValidJSON($string) {
         json_decode($string);
         return json_last_error() === JSON_ERROR_NONE;
+    }
+
+    private function is_youtube_url($url) {
+        // More strict YouTube URL validation
+        $patterns = [
+            '#^https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+#',
+            '#^https?://(?:www\.)?youtube\.com/v/[\w-]+#',
+            '#^https?://youtu\.be/[\w-]+#',
+            '#^https?://(?:www\.)?youtube\.com/embed/[\w-]+#'
+        ];
+        
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $url)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }
