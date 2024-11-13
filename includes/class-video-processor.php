@@ -39,19 +39,51 @@ class VideoProcessor {
             // Base command without cookies
             $command = 'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1';
             
-            // Add cookies only for YouTube URLs
             if ($this->is_youtube_url($url)) {
-                $cookies_file = plugin_dir_path(__FILE__) . '../cookies.txt';
-                if (file_exists($cookies_file)) {
-                    $command = 'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1';
-                    $command = sprintf($command,
-                        escapeshellarg($cookies_file),
-                        escapeshellarg($output_file),
-                        escapeshellarg($url)
+                // Try both possible paths
+                $paths = [
+                    plugin_dir_path(dirname(__FILE__)) . 'cookies.txt',  // From includes directory
+                    WP_PLUGIN_DIR . '/video-fact-checker/cookies.txt'    // Absolute path
+                ];
+                
+                $this->logger->log("Checking possible cookie file locations:");
+                $cookies_found = false;
+                
+                foreach ($paths as $cookies_file) {
+                    $this->logger->log("Checking path: " . $cookies_file);
+                    
+                    if (file_exists($cookies_file)) {
+                        $this->logger->log("✓ Found cookies file at: " . $cookies_file);
+                        $this->logger->log("File size: " . filesize($cookies_file) . " bytes");
+                        $this->logger->log("Permissions: " . substr(sprintf('%o', fileperms($cookies_file)), -4));
+                        
+                        if (is_readable($cookies_file)) {
+                            $this->logger->log("✓ File is readable");
+                            $command = sprintf(
+                                'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                                escapeshellarg($cookies_file),
+                                escapeshellarg($output_file),
+                                escapeshellarg($url)
+                            );
+                            $cookies_found = true;
+                            break;
+                        } else {
+                            $this->logger->log("✗ File is not readable");
+                        }
+                    } else {
+                        $this->logger->log("✗ File not found at: " . $cookies_file);
+                    }
+                }
+                
+                if (!$cookies_found) {
+                    throw new \Exception(
+                        'YouTube authentication failed: No readable cookies.txt found. ' .
+                        'Checked paths: ' . implode(', ', $paths)
                     );
                 }
             } else {
-                $command = sprintf($command,
+                $command = sprintf(
+                    'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
                     escapeshellarg($output_file),
                     escapeshellarg($url)
                 );
