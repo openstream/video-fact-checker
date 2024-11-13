@@ -24,10 +24,41 @@ class VideoProcessor {
             $output_dir = plugin_dir_path(dirname(__FILE__)) . 'temp';
             $this->logger->log("Checking temp directory: " . $output_dir);
             
+            // Check if directory exists
             if (!file_exists($output_dir)) {
-                $this->logger->log("Creating temp directory");
-                if (!mkdir($output_dir, 0755, true)) {
-                    throw new \Exception("Failed to create temp directory: " . $output_dir);
+                $this->logger->log("Directory does not exist, attempting to create");
+                
+                // Check parent directory permissions
+                $parent_dir = dirname($output_dir);
+                $parent_perms = substr(sprintf('%o', fileperms($parent_dir)), -4);
+                $this->logger->log("Parent directory permissions: " . $parent_perms);
+                
+                if (!is_writable($parent_dir)) {
+                    throw new \Exception(sprintf(
+                        "Parent directory not writable: %s (permissions: %s)",
+                        $parent_dir,
+                        $parent_perms
+                    ));
+                }
+                
+                // Attempt to create directory
+                if (!@mkdir($output_dir, 0755)) {
+                    $error = error_get_last();
+                    throw new \Exception(sprintf(
+                        "Failed to create directory: %s (error: %s)",
+                        $output_dir,
+                        $error['message'] ?? 'Unknown error'
+                    ));
+                }
+                
+                // Attempt to set permissions
+                if (!@chmod($output_dir, 0755)) {
+                    $error = error_get_last();
+                    throw new \Exception(sprintf(
+                        "Failed to set directory permissions: %s (error: %s)",
+                        $output_dir,
+                        $error['message'] ?? 'Unknown error'
+                    ));
                 }
             }
             
@@ -35,6 +66,11 @@ class VideoProcessor {
             $perms = substr(sprintf('%o', fileperms($output_dir)), -4);
             $this->logger->log("Directory permissions: " . $perms);
             
+            // Get current process user
+            $current_user = posix_getpwuid(posix_geteuid());
+            $this->logger->log("Current process running as: " . $current_user['name']);
+            
+            // Get directory ownership
             $owner = posix_getpwuid(fileowner($output_dir));
             $group = posix_getgrgid(filegroup($output_dir));
             $this->logger->log("Directory owner: " . $owner['name']);
