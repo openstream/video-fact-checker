@@ -20,55 +20,80 @@ class VideoProcessor {
         try {
             $this->logger->log("=== Starting download with debug info ===");
             
-            // Create and verify temp directory
-            $output_dir = plugin_dir_path(dirname(__FILE__)) . 'temp';
-            $this->logger->log("Checking temp directory: " . $output_dir);
+            // Get plugin directory and temp directory paths
+            $plugin_dir = plugin_dir_path(dirname(__FILE__));
+            $output_dir = $plugin_dir . 'temp';
             
-            // Check if directory exists
+            $this->logger->log("Plugin directory: " . $plugin_dir);
+            $this->logger->log("Temp directory: " . $output_dir);
+            
+            // Check plugin directory
+            $plugin_perms = substr(sprintf('%o', fileperms($plugin_dir)), -4);
+            $plugin_owner = posix_getpwuid(fileowner($plugin_dir));
+            $plugin_group = posix_getgrgid(filegroup($plugin_dir));
+            
+            $this->logger->log("Plugin directory status:");
+            $this->logger->log("- Permissions: " . $plugin_perms);
+            $this->logger->log("- Owner: " . ($plugin_owner['name'] ?? 'unknown'));
+            $this->logger->log("- Group: " . ($plugin_group['name'] ?? 'unknown'));
+            
+            // Get current process info
+            $current_user = posix_getpwuid(posix_geteuid());
+            $this->logger->log("Process running as: " . $current_user['name']);
+            
+            // Create temp directory with proper permissions
             if (!file_exists($output_dir)) {
-                $this->logger->log("Directory does not exist, attempting to create");
+                $this->logger->log("Creating temp directory with proper permissions");
                 
-                // Check parent directory permissions
-                $parent_dir = dirname($output_dir);
-                $parent_perms = substr(sprintf('%o', fileperms($parent_dir)), -4);
-                $this->logger->log("Parent directory permissions: " . $parent_perms);
-                
-                if (!is_writable($parent_dir)) {
-                    throw new \Exception(sprintf(
-                        "Parent directory not writable: %s (permissions: %s)",
-                        $parent_dir,
-                        $parent_perms
-                    ));
+                // First ensure plugin directory is writable
+                if (!is_writable($plugin_dir)) {
+                    // Attempt to fix plugin directory permissions
+                    $this->logger->log("Attempting to fix plugin directory permissions");
+                    if (!@chmod($plugin_dir, 0775)) {
+                        throw new \Exception(sprintf(
+                            "Cannot set plugin directory permissions: %s (current: %s, owner: %s)",
+                            $plugin_dir,
+                            $plugin_perms,
+                            $plugin_owner['name'] ?? 'unknown'
+                        ));
+                    }
                 }
                 
-                // Attempt to create directory
-                if (!@mkdir($output_dir, 0755)) {
+                // Create temp directory
+                if (!@mkdir($output_dir, 0775)) {
                     $error = error_get_last();
                     throw new \Exception(sprintf(
-                        "Failed to create directory: %s (error: %s)",
-                        $output_dir,
-                        $error['message'] ?? 'Unknown error'
-                    ));
-                }
-                
-                // Attempt to set permissions
-                if (!@chmod($output_dir, 0755)) {
-                    $error = error_get_last();
-                    throw new \Exception(sprintf(
-                        "Failed to set directory permissions: %s (error: %s)",
+                        "Failed to create temp directory: %s (error: %s)",
                         $output_dir,
                         $error['message'] ?? 'Unknown error'
                     ));
                 }
             }
             
+            // Verify temp directory permissions
+            $temp_perms = substr(sprintf('%o', fileperms($output_dir)), -4);
+            $temp_owner = posix_getpwuid(fileowner($output_dir));
+            $temp_group = posix_getgrgid(filegroup($output_dir));
+            
+            $this->logger->log("Temp directory status:");
+            $this->logger->log("- Permissions: " . $temp_perms);
+            $this->logger->log("- Owner: " . ($temp_owner['name'] ?? 'unknown'));
+            $this->logger->log("- Group: " . ($temp_group['name'] ?? 'unknown'));
+            
+            // Test write access
+            $test_file = $output_dir . '/.test';
+            if (@file_put_contents($test_file, 'test') === false) {
+                throw new \Exception(sprintf(
+                    "Cannot write to temp directory: %s (perms: %s, owner: %s)",
+                    $output_dir,
+                    $temp_perms,
+                    $temp_owner['name'] ?? 'unknown'
+                ));
+            }
+            
             // Verify directory permissions
             $perms = substr(sprintf('%o', fileperms($output_dir)), -4);
             $this->logger->log("Directory permissions: " . $perms);
-            
-            // Get current process user
-            $current_user = posix_getpwuid(posix_geteuid());
-            $this->logger->log("Current process running as: " . $current_user['name']);
             
             // Get directory ownership
             $owner = posix_getpwuid(fileowner($output_dir));
