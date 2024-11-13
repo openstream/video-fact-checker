@@ -20,11 +20,19 @@ class VideoProcessor {
         try {
             $this->logger->log("=== Starting download with debug info ===");
             
+            // Create unique output filename
+            $output_dir = plugin_dir_path(dirname(__FILE__)) . 'temp/';
+            if (!file_exists($output_dir)) {
+                mkdir($output_dir, 0755, true);
+            }
+            
+            $output_file = $output_dir . uniqid('audio_') . '.%(ext)s';
+            $this->logger->log("Output file template: " . $output_file);
+            
             // Verify YouTube URL detection
             $is_youtube = $this->is_youtube_url($url);
             $this->logger->log("Is YouTube URL: " . ($is_youtube ? 'yes' : 'no'));
             
-            // Only check cookies for YouTube URLs
             if ($is_youtube) {
                 $this->logger->log("=== Checking cookies for YouTube URL ===");
                 $cookies_file = plugin_dir_path(dirname(__FILE__)) . 'cookies.txt';
@@ -69,7 +77,17 @@ class VideoProcessor {
                 throw new \Exception('Failed to download and convert video. Exit code: ' . $return_var);
             }
 
-            // ... rest of the function ...
+            // Find the generated MP3 file
+            $mp3_file = str_replace('%(ext)s', 'mp3', $output_file);
+            $this->logger->log("Looking for MP3 file: " . $mp3_file);
+            
+            if (!file_exists($mp3_file)) {
+                throw new \Exception('Audio file not found: ' . $mp3_file);
+            }
+            
+            $this->logger->log("Found MP3 file: " . $mp3_file);
+            return $mp3_file;
+            
         } catch (\Exception $e) {
             $this->logger->log("=== Error in download_video ===");
             $this->logger->log("Error message: " . $e->getMessage());
