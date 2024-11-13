@@ -109,22 +109,43 @@ class VideoProcessor {
         // Add cookies only for YouTube URLs
         if ($this->is_youtube_url($url)) {
             $cookies_file = plugin_dir_path(__FILE__) . '../cookies.txt';
+            $this->logger->log("Checking for cookies file at: " . $cookies_file);
+            
             if (file_exists($cookies_file)) {
-                $this->logger->log("Using cookies file for YouTube URL");
+                $this->logger->log("Found cookies file. Size: " . filesize($cookies_file) . " bytes");
+                $this->logger->log("File permissions: " . substr(sprintf('%o', fileperms($cookies_file)), -4));
+                $this->logger->log("File contents (first 100 chars): " . substr(file_get_contents($cookies_file), 0, 100));
+                
                 $command = 'yt-dlp --cookies %s --dump-json %s 2>&1';
                 $command = sprintf($command, 
                     escapeshellarg($cookies_file),
                     escapeshellarg($url)
                 );
             } else {
-                $this->logger->log("Cookies file not found at: " . $cookies_file);
-                $command = sprintf($command, escapeshellarg($url));
+                $this->logger->log("WARNING: Cookies file not found at: " . $cookies_file);
+                // Try absolute path as fallback
+                $cookies_file = WP_PLUGIN_DIR . '/video-fact-checker/cookies.txt';
+                $this->logger->log("Trying alternate path: " . $cookies_file);
+                
+                if (file_exists($cookies_file)) {
+                    $this->logger->log("Found cookies file at alternate location");
+                    $command = 'yt-dlp --cookies %s --dump-json %s 2>&1';
+                    $command = sprintf($command, 
+                        escapeshellarg($cookies_file),
+                        escapeshellarg($url)
+                    );
+                } else {
+                    $this->logger->log("WARNING: Cookies file not found at alternate location");
+                    throw new \Exception(
+                        'YouTube authentication required. cookies.txt file not found. ' .
+                        'Please ensure the file exists at: ' . $cookies_file
+                    );
+                }
             }
         } else {
-            $command = sprintf($command, escapeshellarg($url));
+            $command = sprintf('yt-dlp --dump-json %s 2>&1', escapeshellarg($url));
         }
         
-        // Log the final command (with sensitive info redacted)
         $this->logger->log("Executing command: " . preg_replace('/--cookies\s+[^\s]+/', '--cookies [REDACTED]', $command));
         
         exec($command, $output, $return_var);
@@ -132,6 +153,14 @@ class VideoProcessor {
         if ($return_var !== 0) {
             $error_output = implode("\n", $output);
             $this->logger->log("yt-dlp error output: $error_output", 'error');
+            
+            // Enhanced error message for YouTube authentication issues
+            if (strpos($error_output, 'Sign') !== false) {
+                throw new \Exception(
+                    'YouTube authentication failed. Please ensure cookies.txt is present and contains valid cookies'
+                );
+            }
+            
             throw new \Exception(sprintf(
                 'Failed to get video information. Exit code: %d. Error: %s',
                 $return_var,
