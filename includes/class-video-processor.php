@@ -90,14 +90,34 @@ class VideoProcessor {
         exec($command, $output, $return_var);
         
         if ($return_var !== 0) {
-            throw new \Exception('Failed to get video information. Exit code: ' . $return_var);
+            $error_output = implode("\n", $output);
+            $this->logger->log("yt-dlp error output: $error_output", 'error');
+            throw new \Exception(sprintf(
+                'Failed to get video information. Exit code: %d. Error: %s',
+                $return_var,
+                $error_output
+            ));
         }
         
         if (empty($output)) {
             throw new \Exception('No video information received');
         }
         
-        $info = json_decode($output[0], true);
+        // Try to find the JSON data in the output
+        $json_line = null;
+        foreach ($output as $line) {
+            if ($this->isValidJSON($line)) {
+                $json_line = $line;
+                break;
+            }
+        }
+        
+        if ($json_line === null) {
+            $this->logger->log("Raw output: " . implode("\n", $output), 'error');
+            throw new \Exception('No valid JSON found in video information');
+        }
+        
+        $info = json_decode($json_line, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
             throw new \Exception('Invalid video information received: ' . json_last_error_msg());
         }
@@ -122,5 +142,10 @@ class VideoProcessor {
         $pow = min($pow, count($units) - 1);
         
         return round($bytes / pow(1024, $pow), 2) . ' ' . $units[$pow];
+    }
+
+    private function isValidJSON($string) {
+        json_decode($string);
+        return json_last_error() === JSON_ERROR_NONE;
     }
 }
