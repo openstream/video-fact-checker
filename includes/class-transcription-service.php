@@ -35,9 +35,17 @@ class TranscriptionService {
         $response = curl_exec($ch);
         $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
+        if ($response === false) {
+            $curl_error = curl_error($ch);
+            $this->logger->log("Curl error: $curl_error", 'error');
+            throw new \Exception("Transcription request failed: $curl_error");
+        }
+
         if ($http_code !== 200) {
-            $this->logger->log("Transcription failed with code $http_code", 'error');
-            throw new \Exception("Transcription failed");
+            $error_response = json_decode($response, true);
+            $error_message = $error_response['error']['message'] ?? 'Unknown error';
+            $this->logger->log("Transcription failed with code $http_code: $error_message", 'error');
+            throw new \Exception("Transcription failed: $error_message");
         }
 
         $result = json_decode($response, true);
