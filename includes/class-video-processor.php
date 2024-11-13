@@ -128,20 +128,27 @@ class VideoProcessor {
     }
 
     private function is_youtube_url($url) {
+        $this->logger->log("=== Checking if URL is YouTube ===");
+        $this->logger->log("URL to check: " . $url);
+        
         // More strict YouTube URL validation
         $patterns = [
             '#^https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+#',
             '#^https?://(?:www\.)?youtube\.com/v/[\w-]+#',
             '#^https?://youtu\.be/[\w-]+#',
-            '#^https?://(?:www\.)?youtube\.com/embed/[\w-]+#'
+            '#^https?://(?:www\.)?youtube\.com/embed/[\w-]+#',
+            '#^https?://(?:www\.)?youtube\.com/shorts/[\w-]+#'  // Added shorts pattern
         ];
         
         foreach ($patterns as $pattern) {
+            $this->logger->log("Checking pattern: " . $pattern);
             if (preg_match($pattern, $url)) {
+                $this->logger->log("✓ Matched YouTube pattern");
                 return true;
             }
         }
         
+        $this->logger->log("✗ No YouTube patterns matched");
         return false;
     }
 
