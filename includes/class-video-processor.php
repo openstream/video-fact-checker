@@ -24,34 +24,21 @@ class VideoProcessor {
             $is_youtube = $this->is_youtube_url($url);
             $this->logger->log("Is YouTube URL: " . ($is_youtube ? 'yes' : 'no'));
             
-            // Log all possible cookie paths
-            $paths = [
-                plugin_dir_path(dirname(__FILE__)) . 'cookies.txt',
-                WP_PLUGIN_DIR . '/video-fact-checker/cookies.txt',
-                '/var/www/html/wp-content/plugins/video-fact-checker/cookies.txt'
-            ];
-            
-            $this->logger->log("Possible cookie paths:");
-            foreach ($paths as $path) {
-                $this->logger->log("- Checking: " . $path);
-                $this->logger->log("  Exists: " . (file_exists($path) ? 'yes' : 'no'));
-                if (file_exists($path)) {
-                    $this->logger->log("  Size: " . filesize($path) . " bytes");
-                    $this->logger->log("  Permissions: " . substr(sprintf('%o', fileperms($path)), -4));
-                }
-            }
-
-            // Verify yt-dlp is installed
-            $this->check_dependencies();
-            
-            // Get video info first
-            $this->logger->log("Fetching video information for: " . $url);
-            
+            // Only check cookies for YouTube URLs
             if ($is_youtube) {
-                $this->logger->log("=== YouTube URL detected, checking cookies ===");
-                try {
-                    $cookies_file = $this->check_cookies_file($url);
-                    $this->logger->log("Found valid cookies file: " . $cookies_file);
+                $this->logger->log("=== Checking cookies for YouTube URL ===");
+                $cookies_file = plugin_dir_path(dirname(__FILE__)) . 'cookies.txt';
+                
+                if (file_exists($cookies_file)) {
+                    $this->logger->log("Found cookies file. Size: " . filesize($cookies_file) . " bytes");
+                    
+                    // Verify Netscape format
+                    $content = file_get_contents($cookies_file);
+                    if (strpos($content, '# Netscape HTTP Cookie File') === false) {
+                        $this->logger->log("Converting cookies to Netscape format");
+                        $content = "# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n" . $content;
+                        file_put_contents($cookies_file, $content);
+                    }
                     
                     $command = sprintf(
                         'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
@@ -59,15 +46,16 @@ class VideoProcessor {
                         escapeshellarg($output_file),
                         escapeshellarg($url)
                     );
-                    
-                    $this->logger->log("=== Using command with cookies ===");
-                } catch (\Exception $e) {
-                    $this->logger->log("=== Cookie check failed ===");
-                    $this->logger->log("Error: " . $e->getMessage());
-                    throw $e;
+                } else {
+                    throw new \Exception('YouTube authentication required: cookies.txt not found');
                 }
             } else {
-                // ... rest of the function ...
+                // Non-YouTube URL - don't use cookies
+                $command = sprintf(
+                    'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                    escapeshellarg($output_file),
+                    escapeshellarg($url)
+                );
             }
 
             $this->logger->log("=== Executing final command ===");
