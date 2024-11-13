@@ -18,53 +18,61 @@ class VideoProcessor {
 
     public function download_video($url) {
         try {
+            $this->logger->log("=== Starting download with debug info ===");
+            
+            // Verify YouTube URL detection
+            $is_youtube = $this->is_youtube_url($url);
+            $this->logger->log("Is YouTube URL: " . ($is_youtube ? 'yes' : 'no'));
+            
+            // Log all possible cookie paths
+            $paths = [
+                plugin_dir_path(dirname(__FILE__)) . 'cookies.txt',
+                WP_PLUGIN_DIR . '/video-fact-checker/cookies.txt',
+                '/var/www/html/wp-content/plugins/video-fact-checker/cookies.txt'
+            ];
+            
+            $this->logger->log("Possible cookie paths:");
+            foreach ($paths as $path) {
+                $this->logger->log("- Checking: " . $path);
+                $this->logger->log("  Exists: " . (file_exists($path) ? 'yes' : 'no'));
+                if (file_exists($path)) {
+                    $this->logger->log("  Size: " . filesize($path) . " bytes");
+                    $this->logger->log("  Permissions: " . substr(sprintf('%o', fileperms($path)), -4));
+                }
+            }
+
             // Verify yt-dlp is installed
             $this->check_dependencies();
             
             // Get video info first
             $this->logger->log("Fetching video information for: " . $url);
-            $video_info = $this->get_video_info($url);
             
-            // Log video metadata
-            $this->logger->logVideoMetadata(
-                $url,
-                $video_info['title'] ?? null,
-                $video_info['duration'] ?? null
-            );
-    
-            // Generate a unique filename
-            $filename = uniqid('vfc_') . '.mp3';
-            $output_file = $this->upload_dir . '/' . $filename;
-
-            // Base command without cookies
-            $command = 'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1';
-            
-            if ($this->is_youtube_url($url)) {
-                $this->logger->log("DEBUG: YouTube URL detected, checking for cookies file");
+            if ($is_youtube) {
+                $this->logger->log("=== YouTube URL detected, checking cookies ===");
                 try {
                     $cookies_file = $this->check_cookies_file($url);
-                    $this->logger->log("DEBUG: Using cookies file: " . $cookies_file);
+                    $this->logger->log("Found valid cookies file: " . $cookies_file);
+                    
                     $command = sprintf(
                         'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
                         escapeshellarg($cookies_file),
                         escapeshellarg($output_file),
                         escapeshellarg($url)
                     );
+                    
+                    $this->logger->log("=== Using command with cookies ===");
                 } catch (\Exception $e) {
-                    $this->logger->log("DEBUG: Error checking cookies file: " . $e->getMessage());
+                    $this->logger->log("=== Cookie check failed ===");
+                    $this->logger->log("Error: " . $e->getMessage());
+                    throw $e;
                 }
             } else {
-                $command = sprintf(
-                    'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
-                    escapeshellarg($output_file),
-                    escapeshellarg($url)
-                );
+                // ... rest of the function ...
             }
 
-            $this->logger->log("Executing download command");
+            $this->logger->log("=== Executing final command ===");
             exec($command, $output, $return_var);
 
-            // Log the command output
             if (!empty($output)) {
                 $this->logger->log("Command output: " . implode("\n", $output));
             }
@@ -73,27 +81,10 @@ class VideoProcessor {
                 throw new \Exception('Failed to download and convert video. Exit code: ' . $return_var);
             }
 
-            // Check if file exists and is readable
-            if (!file_exists($output_file)) {
-                throw new \Exception('Audio file not found after download: ' . $output_file);
-            }
-
-            // Verify file size
-            $file_size = filesize($output_file);
-            if ($file_size === 0) {
-                unlink($output_file); // Clean up empty file
-                throw new \Exception('Downloaded file is empty');
-            }
-
-            $this->logger->log("Successfully downloaded and converted video", 'info', [
-                'file' => $output_file,
-                'size' => $this->format_file_size($file_size)
-            ]);
-            
-            return $output_file;
-
+            // ... rest of the function ...
         } catch (\Exception $e) {
-            $this->logger->log("Error processing video: " . $e->getMessage(), 'error');
+            $this->logger->log("=== Error in download_video ===");
+            $this->logger->log("Error message: " . $e->getMessage());
             throw $e;
         }
     }
