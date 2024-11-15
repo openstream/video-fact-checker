@@ -1,7 +1,9 @@
-.DS_Store
-vendor/
-node_modules/
 *.log
+.cache/
+.DS_Store
 .env
 cookies.txt
-.cache/
+node_modules/
+temp/
+temp/*
+vendor/
