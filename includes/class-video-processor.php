@@ -149,6 +149,7 @@ class VideoProcessor {
             }
 
             $this->logger->log("=== Executing final command ===");
+            $this->logger->log("Command: " . $command);
             exec($command, $output, $return_var);
 
             if (!empty($output)) {
