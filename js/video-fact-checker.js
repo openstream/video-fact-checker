@@ -9,128 +9,106 @@ jQuery(document).ready(function($) {
 
     form.on('submit', function(e) {
         e.preventDefault();
-        console.log('Form submitted');
-
         const videoUrl = $('#video-url').val();
-        if (!videoUrl) {
-            alert('Please enter a video URL');
-            return;
-        }
-
         console.log('Processing video URL:', videoUrl);
-
-        // Reset and show progress
-        analyzeBtn.prop('disabled', true);
+        
+        // Show progress container and hide results
         progressContainer.show();
         resultsContainer.hide();
+        analyzeBtn.prop('disabled', true);
+        
         updateStatus('starting');
-
-        // Start polling immediately
-        let statusCheckInterval = setInterval(checkProgress, 1000); // Check every second
-
+        
         $.ajax({
-            url: vfcAjax.ajaxurl,
+            url: vfc_ajax.ajax_url,
             type: 'POST',
             data: {
-                action: 'process_video',
-                nonce: vfcAjax.nonce,
+                action: 'vfc_process_video',
+                nonce: vfc_ajax.nonce,
                 url: videoUrl
             },
-            beforeSend: function() {
-                console.log('Sending process_video AJAX request...', {
-                    url: videoUrl,
-                    nonce: vfcAjax.nonce,
-                    ajaxurl: vfcAjax.ajaxurl
-                });
-            },
             success: function(response) {
-                console.log('Process video response:', response);
-                clearInterval(statusCheckInterval);
+                console.log('Server response:', response);
                 if (response.success) {
-                    updateStatus('complete');
                     displayResults(response.data);
                 } else {
-                    handleError(response.data.message);
+                    const errorMessage = response.data ? response.data.message : 'An unknown error occurred';
+                    displayError(errorMessage);
                 }
             },
             error: function(xhr, status, error) {
-                console.error('Process video AJAX Error:', {
-                    xhr: xhr,
-                    status: status,
-                    error: error,
-                    responseText: xhr.responseText
-                });
-                clearInterval(statusCheckInterval);
-                handleError('An error occurred: ' + error);
-            },
-            complete: function() {
-                console.log('Process video request completed');
-                analyzeBtn.prop('disabled', false);
+                console.log('Raw response:', xhr.responseText);
+                console.error('Ajax error:', {xhr, status, error});
+                displayError('An error occurred while processing the request.');
             }
         });
+
+        // Start progress checking
+        startProgressChecking();
     });
 
-    function checkProgress() {
-        $.ajax({
-            url: vfcAjax.ajaxurl,
-            type: 'POST',
-            data: {
-                action: 'check_progress',
-                nonce: vfcAjax.nonce
-            },
-            beforeSend: function() {
-                console.log('Sending check_progress AJAX request...');
-            },
-            success: function(response) {
-                console.log('Progress check response:', response);
-                if (response.success && response.data.status) {
-                    updateStatus(response.data.status);
+    function startProgressChecking() {
+        const progressInterval = setInterval(function() {
+            $.ajax({
+                url: vfc_ajax.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'vfc_check_progress',
+                    nonce: vfc_ajax.nonce
+                },
+                success: function(response) {
+                    console.log('Progress response:', response);
+                    if (response.success) {
+                        updateProgressBar(response.data.progress);
+                        updateStatusMessage(response.data.status);
+                        
+                        if (response.data.status === 'complete' || response.data.status === 'error') {
+                            clearInterval(progressInterval);
+                        }
+                    }
                 }
-            },
-            error: function(xhr, status, error) {
-                console.error('Progress check AJAX Error:', {
-                    xhr: xhr,
-                    status: status,
-                    error: error,
-                    responseText: xhr.responseText
-                });
-            }
-        });
+            });
+        }, 2000); // Check every 2 seconds
     }
 
     function updateStatus(status) {
         console.log('Updating status:', status);
-        const statusMessages = {
-            'starting': 'Starting video analysis',
-            'downloading': 'Downloading video from URL',
-            'transcribing': 'Converting video to text',
-            'analyzing': `Checking facts using ${vfcAjax.model_info}`,
-            'complete': 'Analysis complete!',
-            'error': 'An error occurred'
-        };
-
-        // Create progress message with animation
-        let message = statusMessages[status] || status;
-        
-        if (status !== 'complete' && status !== 'error') {
-            // Add animated dots with space before them
-            message += ' <span class="loading-dots">...</span>'; // Added space here
-        }
-
-        statusMessage.html(message);
-
-        // Update progress bar if you have one
-        const progressSteps = ['starting', 'downloading', 'transcribing', 'analyzing', 'complete'];
-        const currentStep = progressSteps.indexOf(status);
-        if (currentStep > -1) {
-            const progress = (currentStep / (progressSteps.length - 1)) * 100;
-            updateProgressBar(progress);
-        }
+        $.ajax({
+            url: vfc_ajax.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'vfc_update_status',
+                nonce: vfc_ajax.nonce,
+                status: status
+            },
+            success: function(response) {
+                console.log('Status update response:', response);
+                if (response.success) {
+                    updateProgressBar(response.data.progress);
+                    updateStatusMessage(status);
+                }
+            }
+        });
     }
 
     function updateProgressBar(progress) {
+        if (typeof progress === 'undefined') progress = 0;
         console.log('Updating progress bar:', progress + '%');
         $('.progress-fill').css('width', progress + '%');
+    }
+
+    function updateStatusMessage(status) {
+        const messages = {
+            'starting': 'Starting video processing...',
+            'downloading': 'Downloading video...',
+            'transcribing': 'Transcribing audio...',
+            'analyzing': 'Analyzing content...',
+            'complete': 'Analysis complete!',
+            'error': 'An error occurred'
+        };
+        
+        const message = messages[status] || 'Processing...';
+        statusMessage.text(message);
     }
 
     function displayResults(data) {
@@ -138,18 +116,39 @@ jQuery(document).ready(function($) {
         const transcriptionContent = $('#transcription-result .content');
         const analysisContent = $('#analysis-result .content');
 
-        // Fade out progress, fade in results
         progressContainer.fadeOut(400, function() {
             transcriptionContent.text(data.transcription);
             analysisContent.html(data.analysis);
+            
+            if (data.short_url) {
+                const shareUrl = `${window.location.origin}/share/${data.short_url}`;
+                const shareHtml = `
+                    <div class="share-section">
+                        <p>Share this fact check:</p>
+                        <input type="text" readonly value="${shareUrl}" class="share-url">
+                        <button onclick="navigator.clipboard.writeText('${shareUrl}')">Copy Link</button>
+                    </div>
+                `;
+                resultsContainer.append(shareHtml);
+            }
+            
+            analyzeBtn.prop('disabled', false);
             resultsContainer.fadeIn(400);
         });
     }
 
-    function handleError(message) {
-        console.error('Error handled:', message);
-        updateStatus('error');
-        alert('Error: ' + message);
+    function displayError(message) {
+        console.error('Error:', message);
+        progressContainer.fadeOut(400, function() {
+            const errorHtml = `
+                <div class="error-message">
+                    <p>Error: ${message}</p>
+                    <button onclick="location.reload()">Try Again</button>
+                </div>
+            `;
+            resultsContainer.html(errorHtml).fadeIn(400);
+            analyzeBtn.prop('disabled', false);
+        });
     }
 
     // Add CSS for loading dots animation
