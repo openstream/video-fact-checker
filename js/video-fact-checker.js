@@ -126,10 +126,24 @@ jQuery(document).ready(function($) {
                     <div class="share-section">
                         <p>Share this fact check:</p>
                         <input type="text" readonly value="${shareUrl}" class="share-url">
-                        <button onclick="navigator.clipboard.writeText('${shareUrl}')">Copy Link</button>
+                        <button class="copy-share-url">Copy Link</button>
                     </div>
                 `;
                 resultsContainer.append(shareHtml);
+                
+                // Add click handler for copy button
+                $('.copy-share-url').on('click', function(e) {
+                    e.preventDefault();
+                    navigator.clipboard.writeText(shareUrl)
+                        .then(() => {
+                            const originalText = $(this).text();
+                            $(this).text('Copied!');
+                            setTimeout(() => {
+                                $(this).text(originalText);
+                            }, 2000);
+                        })
+                        .catch(err => console.error('Failed to copy:', err));
+                });
             }
             
             analyzeBtn.prop('disabled', false);
