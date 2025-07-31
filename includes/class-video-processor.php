@@ -157,7 +157,10 @@ class VideoProcessor {
             }
 
             if ($return_var !== 0) {
-                throw new \Exception('Failed to download and convert video. Exit code: ' . $return_var);
+                $error_output = !empty($output) ? implode("\n", $output) : 'No output';
+                // Format for HTML display: wrap in <pre> and convert newlines
+                $formatted_output = '<pre>' . htmlspecialchars($error_output) . '</pre>';
+                throw new \Exception('Failed to download and convert video. Exit code: ' . $return_var . '<br>Output:<br>' . $formatted_output);
             }
 
             // Find the generated MP3 file
