@@ -13,6 +13,14 @@ A WordPress plugin that allows users to input a video URL from sites like TikTok
 
 Use the shortcode `[video_fact_checker]` in any post or page to display the video fact-checking form.
 
+### Cache Bypass
+
+To skip caching for testing purposes, add `?nocache=1` to any video URL:
+- **Normal**: `https://www.youtube.com/watch?v=VIDEO_ID`
+- **No cache**: `https://www.youtube.com/watch?v=VIDEO_ID?nocache=1`
+
+This is useful for testing videos without storing results in the database.
+
 ## Logging
 
 The plugin maintains detailed logs of video processing operations in:
