@@ -18,6 +18,13 @@ class VideoProcessor {
 
     public function download_video($url) {
         try {
+            // Quick dependency check for clearer error messages
+            try {
+                $this->check_dependencies();
+            } catch (\Exception $depEx) {
+                throw new \Exception('Dependency check failed: ' . $depEx->getMessage());
+            }
+
             $this->logger->log("=== Starting download with debug info ===");
             
             // Get plugin directory and temp directory paths
@@ -158,8 +165,15 @@ class VideoProcessor {
 
             if ($return_var !== 0) {
                 $error_output = !empty($output) ? implode("\n", $output) : 'No output';
-                // Format for HTML display: wrap in <pre> and convert newlines
-                $formatted_output = '<pre>' . htmlspecialchars($error_output) . '</pre>';
+                $hint = '';
+                if (stripos($error_output, 'Sign in to confirm you\'re not a bot') !== false || stripos($error_output, 'cookies') !== false) {
+                    $hint = "\n\nHint: YouTube may require authentication. Ensure a valid Netscape-format cookies.txt is present in the plugin directory.";
+                }
+                if (stripos($error_output, 'ffmpeg') !== false || stripos($error_output, 'ffprobe') !== false) {
+                    $hint .= "\n\nHint: ffmpeg/ffprobe might be missing. Install them and make sure they are on PATH.";
+                }
+                // Format for HTML display
+                $formatted_output = '<pre>' . htmlspecialchars($error_output . $hint) . '</pre>';
                 throw new \Exception('Failed to download and convert video. Exit code: ' . $return_var . '<br>Output:<br>' . $formatted_output);
             }
 

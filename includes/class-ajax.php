@@ -48,6 +48,10 @@ class Ajax {
             }
 
             $url = sanitize_text_field($_POST['url']);
+            // Correlate this run
+            $request_id = substr(md5($url . microtime(true) . wp_rand()), 0, 8);
+            $this->logger->assignRequestId($request_id);
+            $this->logger->logVideoMetadata($url);
             $this->logger->log("Processing URL: " . $url);
 
             // Check cache
@@ -99,7 +103,14 @@ class Ajax {
         } catch (\Exception $e) {
             $this->logger->log("Error: " . $e->getMessage());
             $this->logger->log("Stack trace: " . $e->getTraceAsString());
-            wp_send_json_error(['message' => $e->getMessage()]);
+            // Ensure progress checker stops polling
+            $this->set_status('error');
+
+            // Send minimal info to user, full details are in the log
+            $error_payload = [
+                'message' => $e->getMessage() . ' (Ref: ' . $this->logger->getCurrentVideoId() . ')'
+            ];
+            wp_send_json_error($error_payload);
         }
     }
 

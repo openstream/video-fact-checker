@@ -156,7 +156,8 @@ jQuery(document).ready(function($) {
         progressContainer.fadeOut(400, function() {
             const errorHtml = `
                 <div class="error-message">
-                    <p>Error: ${message}</p>
+                    <p>Error: </p>
+                    <div class="error-details" style="white-space: pre-wrap;">${message}</div>
                     <button onclick="location.reload()">Try Again</button>
                 </div>
             `;

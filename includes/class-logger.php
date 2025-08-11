@@ -49,11 +49,17 @@ class Logger {
 
     public function logVideoMetadata($url, $title = null, $duration = null) {
         if (!$this->enabled) {
+            // Still ensure a request id exists for correlation even if logging is disabled
+            if ($this->current_video_id === null) {
+                $this->current_video_id = substr(md5($url . time()), 0, 8);
+            }
             return;
         }
 
-        // Generate a unique ID for this video processing session
-        $this->current_video_id = substr(md5($url . time()), 0, 8);
+        // Generate a unique ID for this video processing session if not already assigned
+        if ($this->current_video_id === null) {
+            $this->current_video_id = substr(md5($url . time()), 0, 8);
+        }
 
         $metadata = [
             'video_id' => $this->current_video_id,
@@ -78,6 +84,10 @@ class Logger {
         if ($duration) {
             $this->log("Video Duration: " . $this->formatDuration($duration));
         }
+    }
+
+    public function assignRequestId($request_id) {
+        $this->current_video_id = $request_id;
     }
 
     private function formatDuration($seconds) {
