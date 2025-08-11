@@ -58,6 +58,29 @@ class CacheManager {
         return $short_url;
     }
 
+    /**
+     * Get the most recent transcriptions
+     */
+    public function get_recent_transcriptions($limit = 5) {
+        $limit = intval($limit);
+        if ($limit <= 0) {
+            $limit = 5;
+        }
+        $sql = $this->wpdb->prepare(
+            "SELECT id, video_url, short_url, created_at FROM {$this->table_name} ORDER BY created_at DESC, id DESC LIMIT %d",
+            $limit
+        );
+        return $this->wpdb->get_results($sql);
+    }
+
+    /**
+     * Get all transcriptions (ordered newest first)
+     */
+    public function get_all_transcriptions() {
+        $sql = "SELECT id, video_url, short_url, created_at FROM {$this->table_name} ORDER BY created_at DESC, id DESC";
+        return $this->wpdb->get_results($sql);
+    }
+
     public function get_by_short_url($short_url) {
         $this->logger->log("Looking up result for short URL: " . $short_url);
         
