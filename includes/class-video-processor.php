@@ -183,12 +183,22 @@ class VideoProcessor {
             if ($return_var !== 0) {
                 $error_output = !empty($output) ? implode("\n", $output) : 'No output';
                 $hint = '';
-                if (stripos($error_output, 'Sign in to confirm you\'re not a bot') !== false || stripos($error_output, 'cookies') !== false) {
+                
+                // Proxy-specific error hints
+                if (stripos($error_output, '407 Proxy Authentication Required') !== false) {
+                    $hint = "\n\nHint: Proxy authentication failed. Check your proxy username and password in Settings > Fact Checker.";
+                } elseif (stripos($error_output, '522 status code 522') !== false) {
+                    $hint = "\n\nHint: Proxy server connection timeout (522 error). The proxy server may be down or unreachable.";
+                } elseif (stripos($error_output, 'Tunnel connection failed') !== false) {
+                    $hint = "\n\nHint: Proxy tunnel connection failed. Check proxy address, port, and credentials.";
+                } elseif (stripos($error_output, 'Sign in to confirm you\'re not a bot') !== false || stripos($error_output, 'cookies') !== false) {
                     $hint = "\n\nHint: YouTube may require authentication. Ensure a valid Netscape-format cookies.txt is present in the plugin directory.";
                 }
+                
                 if (stripos($error_output, 'ffmpeg') !== false || stripos($error_output, 'ffprobe') !== false) {
                     $hint .= "\n\nHint: ffmpeg/ffprobe might be missing. Install them and make sure they are on PATH.";
                 }
+                
                 // Format for HTML display
                 $formatted_output = '<pre>' . htmlspecialchars($error_output . $hint) . '</pre>';
                 throw new \Exception('Failed to download and convert video. Exit code: ' . $return_var . '<br>Output:<br>' . $formatted_output);
