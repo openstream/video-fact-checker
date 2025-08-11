@@ -47,15 +47,39 @@ class Ajax {
                 return;
             }
 
-            $url = sanitize_text_field($_POST['url']);
-            $original_url = $url;
+            $raw_url = sanitize_text_field($_POST['url']);
+            $original_url = $raw_url;
             
             // Check for nocache parameter and remove it from the URL
             $nocache = false;
-            if (strpos($url, '?nocache=1') !== false) {
-                $nocache = true;
-                $url = str_replace('?nocache=1', '', $url);
-                $this->logger->log("Cache bypass requested for URL: " . $url);
+            $url = $raw_url;
+            
+            // Parse URL to handle nocache parameter robustly
+            $parsed_url = parse_url($raw_url);
+            if (isset($parsed_url['query'])) {
+                $query_params = [];
+                parse_str($parsed_url['query'], $query_params);
+                
+                if (isset($query_params['nocache'])) {
+                    $nocache = true;
+                    unset($query_params['nocache']);
+                    
+                    // Rebuild URL without nocache parameter
+                    if (empty($query_params)) {
+                        // No more query parameters, remove the ? entirely
+                        $url = $parsed_url['scheme'] . '://' . $parsed_url['host'] . 
+                               (isset($parsed_url['port']) ? ':' . $parsed_url['port'] : '') .
+                               (isset($parsed_url['path']) ? $parsed_url['path'] : '');
+                    } else {
+                        // Rebuild with remaining query parameters
+                        $url = $parsed_url['scheme'] . '://' . $parsed_url['host'] . 
+                               (isset($parsed_url['port']) ? ':' . $parsed_url['port'] : '') .
+                               (isset($parsed_url['path']) ? $parsed_url['path'] : '') .
+                               '?' . http_build_query($query_params);
+                    }
+                    
+                    $this->logger->log("Cache bypass requested for URL: " . $url);
+                }
             }
             
             // Correlate this run
