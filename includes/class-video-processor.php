@@ -122,6 +122,8 @@ class VideoProcessor {
             $is_youtube = $this->is_youtube_url($url);
             $this->logger->log("Is YouTube URL: " . ($is_youtube ? 'yes' : 'no'));
             
+            $proxy = $this->build_youtube_proxy();
+
             if ($is_youtube) {
                 $this->logger->log("=== Checking cookies for YouTube URL ===");
                 $cookies_file = plugin_dir_path(dirname(__FILE__)) . 'cookies.txt';
@@ -138,8 +140,9 @@ class VideoProcessor {
                     }
                     
                     $command = sprintf(
-                        'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                        'yt-dlp --cookies %s %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
                         escapeshellarg($cookies_file),
+                        $proxy ? ('--proxy ' . escapeshellarg($proxy)) : '',
                         escapeshellarg($output_file),
                         escapeshellarg($url)
                     );
@@ -147,7 +150,7 @@ class VideoProcessor {
                     throw new \Exception('YouTube authentication required: cookies.txt not found');
                 }
             } else {
-                // Non-YouTube URL - don't use cookies
+                // Non-YouTube URL - don't use cookies and don't apply proxy
                 $command = sprintf(
                     'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
                     escapeshellarg($output_file),
@@ -196,17 +199,68 @@ class VideoProcessor {
     }
     
     private function get_video_info($url) {
+        $proxy = $this->build_youtube_proxy();
         if ($this->is_youtube_url($url)) {
             $cookies_file = $this->check_cookies_file($url);
-            $command = sprintf('yt-dlp --cookies %s --dump-json %s 2>&1',
+            $command = sprintf('yt-dlp --cookies %s %s --dump-json %s 2>&1',
                 escapeshellarg($cookies_file),
+                $proxy ? ('--proxy ' . escapeshellarg($proxy)) : '',
                 escapeshellarg($url)
             );
         } else {
+            // Non-YouTube: do not apply proxy
             $command = sprintf('yt-dlp --dump-json %s 2>&1', escapeshellarg($url));
         }
         
         return $command;
+    }
+
+    private function build_youtube_proxy() {
+        $address = trim(get_option('vfc_ytdlp_proxy_address', ''));
+        $port = trim(get_option('vfc_ytdlp_proxy_port', ''));
+        $username = trim(get_option('vfc_ytdlp_proxy_username', ''));
+        $password = trim(get_option('vfc_ytdlp_proxy_password', ''));
+
+        if ($address === '') {
+            return '';
+        }
+
+        // If address already includes a scheme, keep it; default to http otherwise
+        $has_scheme = preg_match('#^[a-zA-Z][a-zA-Z0-9+.-]*://#', $address) === 1;
+        $scheme_prefixed = $has_scheme ? $address : ('http://' . $address);
+
+        // Inject credentials if provided
+        $auth = '';
+        if ($username !== '') {
+            $auth = rawurlencode($username);
+            if ($password !== '') {
+                $auth .= ':' . rawurlencode($password);
+            }
+            $auth .= '@';
+        }
+
+        // Split out scheme and host for safe recomposition
+        $parts = parse_url($scheme_prefixed);
+        if ($parts === false || !isset($parts['scheme']) || !isset($parts['host'])) {
+            // If parsing fails, fall back to the raw address (yt-dlp will error with a clear message)
+            return $scheme_prefixed;
+        }
+
+        $host = $parts['host'];
+        $built = $parts['scheme'] . '://' . $auth . $host;
+
+        // Apply port: prefer explicit field, otherwise parsed port if present
+        $final_port = '';
+        if ($port !== '') {
+            $final_port = ':' . $port;
+        } elseif (isset($parts['port'])) {
+            $final_port = ':' . $parts['port'];
+        }
+
+        // Preserve path if provided in address
+        $path = isset($parts['path']) ? $parts['path'] : '';
+
+        return $built . $final_port . $path;
     }
 
     private function check_dependencies() {

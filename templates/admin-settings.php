@@ -90,7 +90,63 @@
                         Choose whether to output the fact check results in formatted HTML or raw Markdown format.
                     </p>
                 </td>
-            </tr>            
+            </tr>
+
+            <tr>
+                <th colspan="2"><h2 style="margin-top: 2em;">Proxy (YouTube only)</h2></th>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="vfc_ytdlp_proxy_address">Proxy Address</label>
+                </th>
+                <td>
+                    <input type="text"
+                           id="vfc_ytdlp_proxy_address"
+                           name="vfc_ytdlp_proxy_address"
+                           value="<?php echo esc_attr(get_option('vfc_ytdlp_proxy_address', '')); ?>"
+                           class="regular-text"
+                           placeholder="e.g. gate.decodo.com">
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="vfc_ytdlp_proxy_port">Proxy Port</label>
+                </th>
+                <td>
+                    <input type="number"
+                           id="vfc_ytdlp_proxy_port"
+                           name="vfc_ytdlp_proxy_port"
+                           value="<?php echo esc_attr(get_option('vfc_ytdlp_proxy_port', '')); ?>"
+                           class="regular-text"
+                           min="1" max="65535" placeholder="e.g. 10001">
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="vfc_ytdlp_proxy_username">Proxy Username</label>
+                </th>
+                <td>
+                    <input type="text"
+                           id="vfc_ytdlp_proxy_username"
+                           name="vfc_ytdlp_proxy_username"
+                           value="<?php echo esc_attr(get_option('vfc_ytdlp_proxy_username', '')); ?>"
+                           class="regular-text">
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="vfc_ytdlp_proxy_password">Proxy Password</label>
+                </th>
+                <td>
+                    <input type="password"
+                           id="vfc_ytdlp_proxy_password"
+                           name="vfc_ytdlp_proxy_password"
+                           value="<?php echo esc_attr(get_option('vfc_ytdlp_proxy_password', '')); ?>"
+                           class="regular-text">
+                    <p class="description">If provided, credentials will be used for proxy authentication.</p>
+                </td>
+            </tr>
+            
         </table>
 
         <?php submit_button(); ?>
