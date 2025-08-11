@@ -125,29 +125,38 @@ class VideoProcessor {
             $proxy = $this->build_youtube_proxy();
 
             if ($is_youtube) {
-                $this->logger->log("=== Checking cookies for YouTube URL ===");
-                $cookies_file = plugin_dir_path(dirname(__FILE__)) . 'cookies.txt';
-                
-                if (file_exists($cookies_file)) {
-                    $this->logger->log("Found cookies file. Size: " . filesize($cookies_file) . " bytes");
-                    
-                    // Verify Netscape format
-                    $content = file_get_contents($cookies_file);
-                    if (strpos($content, '# Netscape HTTP Cookie File') === false) {
-                        $this->logger->log("Converting cookies to Netscape format");
-                        $content = "# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n" . $content;
-                        file_put_contents($cookies_file, $content);
-                    }
-                    
+                if ($proxy) {
+                    $this->logger->log("Using proxy for YouTube download");
                     $command = sprintf(
-                        'yt-dlp --cookies %s %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
-                        escapeshellarg($cookies_file),
-                        $proxy ? ('--proxy ' . escapeshellarg($proxy)) : '',
+                        'yt-dlp --proxy %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                        escapeshellarg($proxy),
                         escapeshellarg($output_file),
                         escapeshellarg($url)
                     );
                 } else {
-                    throw new \Exception('YouTube authentication required: cookies.txt not found');
+                    $this->logger->log("=== Checking cookies for YouTube URL ===");
+                    $cookies_file = plugin_dir_path(dirname(__FILE__)) . 'cookies.txt';
+                    
+                    if (file_exists($cookies_file)) {
+                        $this->logger->log("Found cookies file. Size: " . filesize($cookies_file) . " bytes");
+                        
+                        // Verify Netscape format
+                        $content = file_get_contents($cookies_file);
+                        if (strpos($content, '# Netscape HTTP Cookie File') === false) {
+                            $this->logger->log("Converting cookies to Netscape format");
+                            $content = "# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n" . $content;
+                            file_put_contents($cookies_file, $content);
+                        }
+                        
+                        $command = sprintf(
+                            'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                            escapeshellarg($cookies_file),
+                            escapeshellarg($output_file),
+                            escapeshellarg($url)
+                        );
+                    } else {
+                        throw new \Exception('YouTube authentication required: cookies.txt not found');
+                    }
                 }
             } else {
                 // Non-YouTube URL - don't use cookies and don't apply proxy
@@ -159,7 +168,7 @@ class VideoProcessor {
             }
 
             $this->logger->log("=== Executing final command ===");
-            $this->logger->log("Command: " . $command);
+            $this->logger->log("Command: " . $this->maskProxyCredentialsInCommand($command));
             exec($command, $output, $return_var);
 
             if (!empty($output)) {
@@ -201,12 +210,18 @@ class VideoProcessor {
     private function get_video_info($url) {
         $proxy = $this->build_youtube_proxy();
         if ($this->is_youtube_url($url)) {
-            $cookies_file = $this->check_cookies_file($url);
-            $command = sprintf('yt-dlp --cookies %s %s --dump-json %s 2>&1',
-                escapeshellarg($cookies_file),
-                $proxy ? ('--proxy ' . escapeshellarg($proxy)) : '',
-                escapeshellarg($url)
-            );
+            if ($proxy) {
+                $command = sprintf('yt-dlp --proxy %s --dump-json %s 2>&1',
+                    escapeshellarg($proxy),
+                    escapeshellarg($url)
+                );
+            } else {
+                $cookies_file = $this->check_cookies_file($url);
+                $command = sprintf('yt-dlp --cookies %s --dump-json %s 2>&1',
+                    escapeshellarg($cookies_file),
+                    escapeshellarg($url)
+                );
+            }
         } else {
             // Non-YouTube: do not apply proxy
             $command = sprintf('yt-dlp --dump-json %s 2>&1', escapeshellarg($url));
@@ -261,6 +276,28 @@ class VideoProcessor {
         $path = isset($parts['path']) ? $parts['path'] : '';
 
         return $built . $final_port . $path;
+    }
+
+    private function maskProxyCredentialsInCommand($command) {
+        if (!is_string($command)) {
+            return $command;
+        }
+        if (preg_match('/--proxy\s+("[^"]+"|\'[^\']+\'|\S+)/', $command, $matches)) {
+            $raw = $matches[1];
+            $quote = '';
+            $proxySpec = $raw;
+            if ($raw[0] === '"' || $raw[0] === "'") {
+                $quote = $raw[0];
+                $proxySpec = substr($raw, 1, -1);
+            }
+            $parts = @parse_url($proxySpec);
+            if ($parts && isset($parts['user'])) {
+                $redacted = (isset($parts['scheme']) ? $parts['scheme'] : 'http') . '://' . '****' . (isset($parts['pass']) ? ':****' : '') . '@' . ($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '') . (isset($parts['path']) ? $parts['path'] : '');
+                $replacement = '--proxy ' . ($quote ? $quote . $redacted . $quote : $redacted);
+                return str_replace($matches[0], $replacement, $command);
+            }
+        }
+        return $command;
     }
 
     private function check_dependencies() {
