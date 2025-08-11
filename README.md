@@ -35,9 +35,10 @@ Logging can be enabled/disabled via:
 - OpenAI API key
 - Local or hosting environment with ffmpeg and yt-dlp installed
 - For YouTube videos on servers:
-  - A valid cookies.txt file in the plugin root directory (`wp-content/plugins/video-fact-checker/cookies.txt`)
+  - Either a valid `cookies.txt` file in the plugin directory (`wp-content/plugins/video-fact-checker/cookies.txt`),
+    or configure a proxy in Settings > Fact Checker. If `cookies.txt` is missing, the plugin will require a proxy for YouTube.
 
-Note: You may need to update the cookies.txt file periodically when the authentication expires.
+Note: You may need to update the `cookies.txt` file periodically when authentication expires.
 
 ## License
 

@@ -96,6 +96,15 @@
                 <th colspan="2"><h2 style="margin-top: 2em;">Proxy (YouTube only)</h2></th>
             </tr>
             <tr>
+                <td colspan="2">
+                    <p class="description">
+                        For YouTube, the plugin will use a <code>cookies.txt</code> file located in the plugin directory
+                        (<code>wp-content/plugins/video-fact-checker/cookies.txt</code>). If there is no cookies.txt file,
+                        you need to configure and use a proxy.
+                    </p>
+                </td>
+            </tr>
+            <tr>
                 <th scope="row">
                     <label for="vfc_ytdlp_proxy_address">Proxy Address</label>
                 </th>
