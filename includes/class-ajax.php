@@ -48,25 +48,40 @@ class Ajax {
             }
 
             $url = sanitize_text_field($_POST['url']);
+            $original_url = $url;
+            
+            // Check for nocache parameter and remove it from the URL
+            $nocache = false;
+            if (strpos($url, '?nocache=1') !== false) {
+                $nocache = true;
+                $url = str_replace('?nocache=1', '', $url);
+                $this->logger->log("Cache bypass requested for URL: " . $url);
+            }
+            
             // Correlate this run
             $request_id = substr(md5($url . microtime(true) . wp_rand()), 0, 8);
             $this->logger->assignRequestId($request_id);
             $this->logger->logVideoMetadata($url);
             $this->logger->log("Processing URL: " . $url);
 
-            // Check cache
+            // Check cache (unless nocache is requested)
             $cache_manager = new CacheManager();
-            $cached_result = $cache_manager->get_cached_result($url);
-
-            if ($cached_result) {
-                $this->logger->log("Returning cached result with short URL: " . $cached_result['short_url']);
-                wp_send_json_success([
-                    'transcription' => $cached_result['transcription'],
-                    'analysis' => $cached_result['analysis'],
-                    'short_url' => $cached_result['short_url'],
-                    'cached' => true
-                ]);
-                return;
+            $cached_result = null;
+            
+            if (!$nocache) {
+                $cached_result = $cache_manager->get_cached_result($url);
+                if ($cached_result) {
+                    $this->logger->log("Returning cached result with short URL: " . $cached_result['short_url']);
+                    wp_send_json_success([
+                        'transcription' => $cached_result['transcription'],
+                        'analysis' => $cached_result['analysis'],
+                        'short_url' => $cached_result['short_url'],
+                        'cached' => true
+                    ]);
+                    return;
+                }
+            } else {
+                $this->logger->log("Skipping cache check due to nocache parameter");
             }
 
             // Process video
@@ -83,12 +98,19 @@ class Ajax {
             $this->set_status('analyzing');
             $analysis = $this->fact_checker->check_facts($transcription);
 
-            // Cache result
-            $short_url = $cache_manager->cache_result($url, $transcription, $analysis);
-            $this->logger->log("Generated short URL: " . $short_url);
+            // Cache result (unless nocache is requested)
+            $short_url = null;
+            if (!$nocache) {
+                $short_url = $cache_manager->cache_result($url, $transcription, $analysis);
+                $this->logger->log("Generated short URL: " . $short_url);
 
-            if (!$short_url) {
-                throw new \Exception("Failed to cache result");
+                if (!$short_url) {
+                    throw new \Exception("Failed to cache result");
+                }
+            } else {
+                $this->logger->log("Skipping cache storage due to nocache parameter");
+                // Generate a temporary short URL for display purposes
+                $short_url = 'temp_' . substr(md5($url . time()), 0, 6);
             }
 
             $this->set_status('complete');
@@ -97,7 +119,8 @@ class Ajax {
                 'transcription' => $transcription,
                 'analysis' => $analysis,
                 'short_url' => $short_url,
-                'cached' => false
+                'cached' => false,
+                'nocache' => $nocache
             ]);
 
         } catch (\Exception $e) {
