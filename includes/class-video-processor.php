@@ -123,6 +123,11 @@ class VideoProcessor {
             $this->logger->log("Is YouTube URL: " . ($is_youtube ? 'yes' : 'no'));
             
             $proxy = $this->build_youtube_proxy();
+            if (!empty($proxy)) {
+                $this->logger->log("Proxy configured: YES | " . $this->describe_proxy($proxy));
+            } else {
+                $this->logger->log("Proxy configured: NO");
+            }
 
             if ($is_youtube) {
                 if ($proxy) {
@@ -209,6 +214,11 @@ class VideoProcessor {
     
     private function get_video_info($url) {
         $proxy = $this->build_youtube_proxy();
+        if (!empty($proxy)) {
+            $this->logger->log("Proxy configured for info: YES | " . $this->describe_proxy($proxy));
+        } else {
+            $this->logger->log("Proxy configured for info: NO");
+        }
         if ($this->is_youtube_url($url)) {
             if ($proxy) {
                 $command = sprintf('yt-dlp --proxy %s --dump-json %s 2>&1',
@@ -298,6 +308,21 @@ class VideoProcessor {
             }
         }
         return $command;
+    }
+
+    private function describe_proxy($proxy) {
+        // Proxy descriptor without credentials for logging
+        if (!is_string($proxy) || $proxy === '') {
+            return '';
+        }
+        $parts = @parse_url($proxy);
+        if ($parts === false) {
+            return '[invalid proxy spec]';
+        }
+        $scheme = isset($parts['scheme']) ? $parts['scheme'] : 'http';
+        $host = isset($parts['host']) ? $parts['host'] : '';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        return sprintf('scheme=%s host=%s%s', $scheme, $host, $port);
     }
 
     private function check_dependencies() {
