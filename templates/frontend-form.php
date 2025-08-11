@@ -2,9 +2,7 @@
     <form id="vfc-form">
         <div class="form-group">
             <div class="form-header">
-                Supports <a href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md"
-                   target="_blank"
-                   class="supported-link">1800+</a> video sites like TikTok, YouTube, Instagram, etc.
+                Supports over 1,800 video platforms—including top‑tier services such as YouTube, TikTok, Instagram, Vimeo, Twitch, and Dailymotion.
             </div>
             <input type="url"
                    id="video-url"
