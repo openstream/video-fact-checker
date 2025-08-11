@@ -12,6 +12,9 @@ class Logger {
         
         // Set log file path in wp-content directory
         $this->log_file = WP_CONTENT_DIR . '/video-fact-checker.log';
+
+        // Best-effort ensure the log file exists and is writable
+        $this->ensureLogFile();
     }
 
     public function log($message, $level = 'info', $context = []) {
@@ -44,7 +47,15 @@ class Logger {
             $context_str
         );
 
-        error_log($log_message, 3, $this->log_file);
+        // Attempt to write to dedicated log file; fall back if unavailable
+        if ($this->isWritable()) {
+            // Use file_put_contents to avoid any handler buffering oddities with error_log and to
+            // better support tools like `tail -f` in real-time
+            @file_put_contents($this->log_file, $log_message, FILE_APPEND | LOCK_EX);
+        } else {
+            // Fallback to PHP default error log
+            @error_log('[VFC] ' . $log_message);
+        }
     }
 
     public function logVideoMetadata($url, $title = null, $duration = null) {
@@ -128,5 +139,27 @@ class Logger {
 
     public function getCurrentVideoId() {
         return $this->current_video_id;
+    }
+
+    private function ensureLogFile() {
+        // If wp-content is not writable, we cannot create the file
+        if (!is_dir(WP_CONTENT_DIR) || !is_writable(WP_CONTENT_DIR)) {
+            return;
+        }
+        // Create file if it doesn't exist
+        if (!file_exists($this->log_file)) {
+            @touch($this->log_file);
+            // Set permissive permissions for web server group write
+            @chmod($this->log_file, 0664);
+        }
+    }
+
+    private function isWritable() {
+        // If file exists, ensure it is writable
+        if (file_exists($this->log_file)) {
+            return is_writable($this->log_file);
+        }
+        // If file doesn't exist, check directory writability
+        return is_writable(WP_CONTENT_DIR);
     }
 }
