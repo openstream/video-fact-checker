@@ -77,7 +77,7 @@ class CacheManager {
      * Get all transcriptions (ordered newest first)
      */
     public function get_all_transcriptions() {
-        $sql = "SELECT id, video_url, short_url, created_at FROM {$this->table_name} ORDER BY created_at DESC, id DESC";
+        $sql = "SELECT id, video_url, short_url, transcription, analysis, created_at FROM {$this->table_name} ORDER BY created_at DESC, id DESC";
         return $this->wpdb->get_results($sql);
     }
 
