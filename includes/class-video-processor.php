@@ -186,7 +186,17 @@ class VideoProcessor {
                 
                 // Proxy-specific error hints
                 if (stripos($error_output, '407 Proxy Authentication Required') !== false) {
-                    $hint = "\n\nHint: Proxy authentication failed. Check your proxy username and password in Settings > Fact Checker.";
+                    // A 407 can mean bad credentials OR an exhausted plan/traffic limit.
+                    // The proxy usually explains which via an x-error-message header that
+                    // yt-dlp surfaces in its output — bubble it up so the cause is obvious.
+                    $proxy_msg = $this->extract_proxy_error_message($error_output);
+                    if ($proxy_msg !== '' && (stripos($proxy_msg, 'limit') !== false || stripos($proxy_msg, 'traffic') !== false || stripos($proxy_msg, 'quota') !== false)) {
+                        $hint = "\n\nHint: The proxy rejected the request (407) because its traffic/plan limit is exhausted, not because of wrong credentials. Proxy said: \"" . $proxy_msg . "\". Top up or raise the limit with your proxy provider, or configure a different proxy in Settings > Fact Checker.";
+                    } elseif ($proxy_msg !== '') {
+                        $hint = "\n\nHint: The proxy rejected the request (407). Proxy said: \"" . $proxy_msg . "\". Check your proxy credentials and plan status in Settings > Fact Checker.";
+                    } else {
+                        $hint = "\n\nHint: The proxy rejected the request (407 Proxy Authentication Required). This usually means the proxy credentials are wrong OR the proxy's traffic/plan limit is exhausted. Verify both in Settings > Fact Checker.";
+                    }
                 } elseif (stripos($error_output, '522 status code 522') !== false) {
                     $hint = "\n\nHint: Proxy server connection timeout (522 error). The proxy server may be down or unreachable.";
                 } elseif (stripos($error_output, 'Tunnel connection failed') !== false) {
@@ -320,6 +330,21 @@ class VideoProcessor {
         return $command;
     }
 
+    private function extract_proxy_error_message($error_output) {
+        // Proxies often explain a 407 via an x-error-message header or a plain-text body
+        // that yt-dlp includes in its output. Pull out the most descriptive line we can.
+        if (!is_string($error_output) || $error_output === '') {
+            return '';
+        }
+        if (preg_match('/x-error-message:\s*(.+)/i', $error_output, $m)) {
+            return trim($m[1]);
+        }
+        if (preg_match('/(You\'?ve reached[^\n\r]*|traffic limit[^\n\r]*|current traffic limit[^\n\r]*|quota[^\n\r]*exceeded[^\n\r]*)/i', $error_output, $m)) {
+            return trim($m[1]);
+        }
+        return '';
+    }
+
     private function describe_proxy($proxy) {
         // Proxy descriptor without credentials for logging
         if (!is_string($proxy) || $proxy === '') {
@@ -359,7 +384,7 @@ class VideoProcessor {
         return json_last_error() === JSON_ERROR_NONE;
     }
 
-    private function is_youtube_url($url) {
+    public function is_youtube_url($url) {
         $this->logger->log("=== Checking if URL is YouTube ===");
         $this->logger->log("URL to check: " . $url);
         

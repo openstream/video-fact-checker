@@ -6,6 +6,7 @@ class Ajax {
     private $processor;
     private $transcriber;
     private $fact_checker;
+    private $rate_limiter;
 
     public function __construct() {
         // Initialize all required services
@@ -13,6 +14,7 @@ class Ajax {
         $this->processor = new VideoProcessor();
         $this->transcriber = new TranscriptionService();
         $this->fact_checker = new FactChecker();
+        $this->rate_limiter = new RateLimiter($this->logger);
 
         // Register Ajax actions
         add_action('wp_ajax_vfc_process_video', [$this, 'handle_process_video']);
@@ -108,6 +110,11 @@ class Ajax {
                 $this->logger->log("Skipping cache check due to nocache parameter");
             }
 
+            // Enforce the per-user daily limit before doing any expensive work.
+            // YouTube (paid proxy) and other platforms are limited separately.
+            $rate_bucket = $this->processor->is_youtube_url($url) ? 'youtube' : 'other';
+            $this->rate_limiter->enforce($rate_bucket);
+
             // Process video
             $this->set_status('downloading');
             $audio_file = $this->processor->download_video($url);
@@ -121,6 +128,10 @@ class Ajax {
 
             $this->set_status('analyzing');
             $analysis = $this->fact_checker->check_facts($transcription);
+
+            // Count this successful, resource-consuming run against the daily limit.
+            // Cached hits return earlier and are intentionally not counted.
+            $this->rate_limiter->record($rate_bucket);
 
             // Cache result (unless nocache is requested)
             $short_url = null;

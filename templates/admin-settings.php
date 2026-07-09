@@ -28,15 +28,16 @@
                 <td>
                     <select id="vfc_openai_model" name="vfc_openai_model">
                         <?php
-                        $current_model = get_option('vfc_openai_model', 'gpt-3.5-turbo');
+                        $current_model = get_option('vfc_openai_model', 'gpt-4o-mini');
+                        // Chat Completions models supporting temperature 0.3 (see class-fact-checker.php).
+                        // Reasoning models (o-series / gpt-5) are intentionally omitted: they require
+                        // code changes (max_completion_tokens, no custom temperature) before use.
                         $models = [
-                            'gpt-4o' => 'gpt-4o (2024-03-01, High Energy, $0.03/1K tokens)',
-                            'gpt-4o-mini' => 'gpt-4o-mini (2024-03-01, Medium Energy, $0.02/1K tokens)', 
-                            'openai-o1-preview' => 'openai-o1-preview (2024-01-15, Very High Energy, $0.04/1K tokens)',
-                            'openai-o1-mini' => 'openai-o1-mini (2024-01-15, Medium Energy, $0.02/1K tokens)',
-                            'gpt-4' => 'gpt-4 (2023-03-14, High Energy, $0.03/1K tokens)',
-                            'gpt-3.5-turbo' => 'gpt-3.5-turbo (2022-11-30, Low Energy, $0.002/1K tokens)',
-                            'gpt-3.5' => 'gpt-3.5 (2022-11-30, Low Energy, $0.002/1K tokens)'
+                            'gpt-4.1' => 'gpt-4.1 (High capability, ~$2/1M in · $8/1M out)',
+                            'gpt-4.1-mini' => 'gpt-4.1-mini (Balanced, ~$0.40/1M in · $1.60/1M out)',
+                            'gpt-4.1-nano' => 'gpt-4.1-nano (Fastest/cheapest, ~$0.10/1M in · $0.40/1M out)',
+                            'gpt-4o' => 'gpt-4o (High capability, ~$2.50/1M in · $10/1M out)',
+                            'gpt-4o-mini' => 'gpt-4o-mini (Low cost, ~$0.15/1M in · $0.60/1M out)',
                         ];
                         foreach ($models as $value => $label) {
                             printf(
