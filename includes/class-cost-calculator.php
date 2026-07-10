@@ -73,6 +73,43 @@ class CostCalculator {
     }
 
     /**
+     * Estimate metrics for a historical run that predates cost tracking, using only
+     * the stored transcript + analysis text. This is a rough approximation:
+     *   - Chat tokens ~ text length / 4 chars per token (prompt = transcript, since
+     *     the fact-check prompt is transcript-dominated; completion = analysis).
+     *   - Whisper minutes ~ transcript words / 150 wpm (average speaking rate).
+     *   - Proxy = 0 (bytes unknown; most historical rows are non-YouTube anyway).
+     * Priced with the currently selected model. Marked cost_estimated = 1.
+     */
+    public function estimate_metrics($platform, $transcript, $analysis) {
+        $transcript = (string) $transcript;
+        $analysis = (string) $analysis;
+
+        $prompt_tokens = (int) ceil(strlen($transcript) / 4);
+        $completion_tokens = (int) ceil(strlen(strip_tags($analysis)) / 4);
+
+        $words = str_word_count(strip_tags($transcript));
+        $audio_seconds = ($words / 150.0) * 60.0; // 150 wpm
+
+        $openai  = $this->openai_cost($prompt_tokens, $completion_tokens);
+        $whisper = $this->whisper_cost($audio_seconds);
+        // Proxy intentionally 0 for historical rows.
+
+        return [
+            'platform' => $platform,
+            'openai_prompt_tokens' => $prompt_tokens,
+            'openai_completion_tokens' => $completion_tokens,
+            'openai_cost' => round($openai, 6),
+            'whisper_seconds' => round($audio_seconds, 2),
+            'whisper_cost' => round($whisper, 6),
+            'proxy_bytes' => 0,
+            'proxy_cost' => 0.0,
+            'total_cost' => round($openai + $whisper, 6),
+            'cost_estimated' => 1,
+        ];
+    }
+
+    /**
      * Build the full metrics array to persist for one run.
      */
     public function build_metrics($platform, $prompt_tokens, $completion_tokens, $audio_seconds, $download_bytes, $is_youtube, $model = null) {

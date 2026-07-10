@@ -186,13 +186,17 @@ class Admin {
             if ($total_cost === null) {
                 $cost_cell = '<span style="color:#999;">—</span>';
             } else {
+                $is_estimated = !empty($row->cost_estimated);
                 $breakdown = sprintf(
-                    'OpenAI $%s · Whisper $%s · Proxy $%s',
+                    'OpenAI $%s · Whisper $%s · Proxy $%s%s',
                     number_format((float) $row->openai_cost, 4),
                     number_format((float) $row->whisper_cost, 4),
-                    number_format((float) $row->proxy_cost, 4)
+                    number_format((float) $row->proxy_cost, 4),
+                    $is_estimated ? ' (estimated from transcript length; proxy not counted)' : ''
                 );
-                $cost_cell = '<span title="' . esc_attr($breakdown) . '">$' . esc_html(number_format($total_cost, 4)) . '</span>';
+                $amount = '$' . esc_html(number_format($total_cost, 4));
+                $suffix = $is_estimated ? ' <span style="color:#999;font-size:11px;">(est.)</span>' : '';
+                $cost_cell = '<span title="' . esc_attr($breakdown) . '">' . $amount . '</span>' . $suffix;
             }
 
 
@@ -299,9 +303,11 @@ class Admin {
             echo '<div style="margin:0 0 10px;">';
             echo '<div style="display:flex;align-items:center;">';
             echo $thumb_html;
-            echo '<div>';
+            // min-width:0 lets the flex child shrink so long URLs wrap instead of
+            // overflowing the widget box.
+            echo '<div style="min-width:0;flex:1;">';
             echo '<div style="font-weight:600;">' . $created . '</div>';
-            echo '<div><a href="' . esc_url($video_url) . '" target="_blank" rel="noopener">' . esc_html($video_url) . '</a></div>';
+            echo '<div style="overflow-wrap:anywhere;word-break:break-word;"><a href="' . esc_url($video_url) . '" target="_blank" rel="noopener">' . esc_html($video_url) . '</a></div>';
             echo '<div><a href="' . esc_url($public_url) . '" target="_blank" rel="noopener">Open fact check</a></div>';
             echo '</div>';
             echo '</div>';

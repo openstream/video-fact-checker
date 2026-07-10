@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 2);
+define('VFC_DB_VERSION', 3);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -179,6 +179,14 @@ add_action('init', function() {
     if ((int) get_option('vfc_db_version', 0) < VFC_DB_VERSION) {
         VideoFactChecker\CacheManager::ensure_schema();
         update_option('vfc_db_version', VFC_DB_VERSION);
+
+        // One-off: estimate costs for historical rows once, after the cost columns
+        // exist. Idempotent (only touches rows without total_cost) and guarded by a
+        // flag so it never re-runs.
+        if (!get_option('vfc_costs_backfilled')) {
+            (new VideoFactChecker\CacheManager())->backfill_estimated_costs();
+            update_option('vfc_costs_backfilled', 1);
+        }
     }
 });
 

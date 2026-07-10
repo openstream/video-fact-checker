@@ -63,6 +63,7 @@ class CacheManager {
             'proxy_bytes' => '%d',
             'proxy_cost' => '%f',
             'total_cost' => '%f',
+            'cost_estimated' => '%d',
         ];
         foreach ($metric_formats as $key => $fmt) {
             if (array_key_exists($key, $metrics) && $metrics[$key] !== null) {
@@ -102,6 +103,7 @@ class CacheManager {
             proxy_bytes bigint(20) DEFAULT NULL,
             proxy_cost decimal(10,6) DEFAULT NULL,
             total_cost decimal(10,6) DEFAULT NULL,
+            cost_estimated tinyint(1) NOT NULL DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             UNIQUE KEY video_hash (video_hash),
@@ -140,9 +142,45 @@ class CacheManager {
      */
     public function get_all_transcriptions() {
         $sql = "SELECT id, video_url, short_url, transcription, analysis, created_at,
-                       platform, openai_cost, whisper_cost, proxy_cost, total_cost
+                       platform, openai_cost, whisper_cost, proxy_cost, total_cost, cost_estimated
                 FROM {$this->table_name} ORDER BY created_at DESC, id DESC";
         return $this->wpdb->get_results($sql);
+    }
+
+    /**
+     * One-off backfill: estimate costs for rows that have no total_cost yet.
+     * Idempotent — only touches rows where total_cost IS NULL. Returns the count updated.
+     */
+    public function backfill_estimated_costs() {
+        $rows = $this->wpdb->get_results(
+            "SELECT id, video_url, transcription, analysis FROM {$this->table_name} WHERE total_cost IS NULL"
+        );
+        if (empty($rows)) {
+            return 0;
+        }
+
+        $calc = new CostCalculator();
+        $updated = 0;
+        foreach ($rows as $row) {
+            // Derive platform bucket from the URL (youtube vs other).
+            $is_youtube = (bool) preg_match('#(?:youtube\.com|youtu\.be)#i', (string) $row->video_url);
+            $platform = $is_youtube ? 'youtube' : 'other';
+
+            $metrics = $calc->estimate_metrics($platform, $row->transcription, $row->analysis);
+
+            $ok = $this->wpdb->update(
+                $this->table_name,
+                $metrics,
+                ['id' => $row->id],
+                ['%s', '%d', '%d', '%f', '%f', '%f', '%d', '%f', '%f', '%d'],
+                ['%d']
+            );
+            if ($ok !== false) {
+                $updated++;
+            }
+        }
+        $this->logger->log("Backfilled estimated costs for {$updated} historical rows.");
+        return $updated;
     }
 
     /**
