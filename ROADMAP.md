@@ -89,11 +89,30 @@ Nothing here is committed to a delivery date yet; it captures direction and deci
       produces a clear message + an admin email. Still TODO: *proactively* surface the
       proxy's remaining traffic allowance before it hard-fails.
 
+## Phase 3b — Cost reduction
+
+- [ ] **Use YouTube's own transcript instead of Whisper.** Many YouTube videos ship
+      subtitles/captions (human or auto-generated) that yt-dlp can fetch via
+      `--write-subs` / `--write-auto-subs`. When present, skip the Whisper transcription
+      step entirely and fact-check the caption text directly — cheaper and faster.
+      Caveats to design around:
+      - Not every video has captions → keep Whisper as the fallback.
+      - Auto-generated captions are lower quality (no punctuation/sentence structure,
+        ASR errors) → may hurt fact-check quality; consider only using *manual* subs, or
+        post-cleaning auto-subs, or a quality heuristic to decide.
+      - This saves **Whisper cost**, not the proxy: fetching captions still goes through
+        YouTube and needs the proxy (datacenter-IP block). So it complements, not
+        replaces, the proxy.
+      - Prefer the video's original language track; handle multi-language selection.
+
 ## Phase 4 — Product polish
 
 - [ ] Per-user history / dashboard of past fact-checks.
 - [ ] Email receipts and quota-reset notifications.
-- [ ] Admin analytics: runs per platform, cache hit rate, proxy cost per run.
+- [~] **Admin analytics: cost per fact-check.** In progress — capturing per-run cost
+      (OpenAI tokens, Whisper minutes, proxy bytes) in the cache table, surfaced on the
+      Transcriptions admin page, plus a daily-budget email alert. Still TODO: runs per
+      platform, cache-hit rate.
 
 ## Open decisions
 

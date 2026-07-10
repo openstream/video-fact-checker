@@ -94,6 +94,53 @@
             </tr>
 
             <tr>
+                <th colspan="2"><h2 style="margin-top: 2em;">Cost accounting</h2></th>
+            </tr>
+            <tr>
+                <td colspan="2">
+                    <p class="description">
+                        Pricing rates used to estimate the cost of each fact check. Leave a field
+                        empty to use the built-in default. Proxy cost applies to YouTube only.
+                    </p>
+                </td>
+            </tr>
+            <?php
+            $cost_fields = [
+                'vfc_price_chat_input_per_1m'  => ['OpenAI chat — input ($ / 1M tokens)', '0.15'],
+                'vfc_price_chat_output_per_1m' => ['OpenAI chat — output ($ / 1M tokens)', '0.60'],
+                'vfc_price_whisper_per_min'    => ['Whisper transcription ($ / audio minute)', '0.006'],
+                'vfc_price_proxy_per_gb'       => ['Proxy traffic ($ / GB)', '3.00'],
+                'vfc_daily_cost_budget'        => ['Daily budget alert ($ / day, 0 = off)', ''],
+            ];
+            foreach ($cost_fields as $name => $meta):
+                list($label, $placeholder) = $meta;
+            ?>
+            <tr>
+                <th scope="row"><label for="<?php echo esc_attr($name); ?>"><?php echo esc_html($label); ?></label></th>
+                <td>
+                    <input type="number" step="0.000001" min="0"
+                           id="<?php echo esc_attr($name); ?>"
+                           name="<?php echo esc_attr($name); ?>"
+                           value="<?php echo esc_attr(get_option($name, '')); ?>"
+                           placeholder="<?php echo esc_attr($placeholder); ?>"
+                           class="small-text">
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            <tr>
+                <th scope="row"><label for="vfc_notify_email">Notification email</label></th>
+                <td>
+                    <input type="email"
+                           id="vfc_notify_email"
+                           name="vfc_notify_email"
+                           value="<?php echo esc_attr(get_option('vfc_notify_email', '')); ?>"
+                           placeholder="<?php echo esc_attr(get_option('admin_email')); ?>"
+                           class="regular-text">
+                    <p class="description">Where error alerts, the daily log, and budget alerts are sent. Defaults to the site admin email.</p>
+                </td>
+            </tr>
+
+            <tr>
                 <th colspan="2"><h2 style="margin-top: 2em;">Proxy (YouTube only)</h2></th>
             </tr>
             <tr>

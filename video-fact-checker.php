@@ -30,6 +30,8 @@ if (!defined('ABSPATH')) {
 
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
+// Bump when the DB schema changes so existing installs migrate on the next load.
+define('VFC_DB_VERSION', 2);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -120,25 +122,9 @@ add_action('wp_enqueue_scripts', 'vfc_enqueue_scripts');
 register_activation_hook(__FILE__, function() {
     global $wpdb;
     
-    // Create fact check cache table
-    $table_name = $wpdb->prefix . 'vfc_cache';
-    $charset_collate = $wpdb->get_charset_collate();
-
-    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
-        id bigint(20) NOT NULL AUTO_INCREMENT,
-        video_url varchar(2048) NOT NULL,
-        video_hash varchar(32) NOT NULL,
-        short_url varchar(10) NOT NULL,
-        transcription longtext,
-        analysis longtext,
-        created_at datetime DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY  (id),
-        UNIQUE KEY video_hash (video_hash),
-        UNIQUE KEY short_url (short_url)
-    ) $charset_collate;";
-
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-    dbDelta($sql);
+    // Create/upgrade the fact check cache table (includes cost columns).
+    VideoFactChecker\CacheManager::ensure_schema();
+    update_option('vfc_db_version', VFC_DB_VERSION);
 
     // Create upload directory
     $upload_dir = wp_upload_dir();
@@ -171,9 +157,11 @@ register_deactivation_hook(__FILE__, function() {
     }
 });
 
-// Daily cron: mail the log file to the admin, then rotate it.
+// Daily cron: check the daily cost budget, then mail + rotate the log.
 add_action('vfc_daily_log_email', function() {
-    (new VideoFactChecker\Notifier())->send_daily_log();
+    $notifier = new VideoFactChecker\Notifier();
+    $notifier->check_daily_budget();
+    $notifier->send_daily_log();
 });
 
 // Safety net: if the plugin was updated (not reactivated) and the event isn't
@@ -182,6 +170,15 @@ add_action('init', function() {
     if (!wp_next_scheduled('vfc_daily_log_email')) {
         $first = strtotime('tomorrow 03:00');
         wp_schedule_event($first ?: time() + DAY_IN_SECONDS, 'daily', 'vfc_daily_log_email');
+    }
+});
+
+// DB migration on update: if the plugin was updated (not reactivated), bring the
+// schema up to date once when the stored version is behind the code's version.
+add_action('init', function() {
+    if ((int) get_option('vfc_db_version', 0) < VFC_DB_VERSION) {
+        VideoFactChecker\CacheManager::ensure_schema();
+        update_option('vfc_db_version', VFC_DB_VERSION);
     }
 });
 

@@ -34,21 +34,44 @@ class CacheManager {
         return null;
     }
 
-    public function cache_result($url, $transcription, $analysis) {
+    /**
+     * @param array $metrics Optional cost/usage metrics for this run. Recognized keys:
+     *   platform, openai_prompt_tokens, openai_completion_tokens, openai_cost,
+     *   whisper_seconds, whisper_cost, proxy_bytes, proxy_cost, total_cost.
+     */
+    public function cache_result($url, $transcription, $analysis, $metrics = []) {
         $video_hash = md5($url);
         $short_url = $this->generate_short_url();
 
-        $result = $this->wpdb->insert(
-            $this->table_name,
-            [
-                'video_url' => $url,
-                'video_hash' => $video_hash,
-                'short_url' => $short_url,
-                'transcription' => $transcription,
-                'analysis' => $analysis
-            ],
-            ['%s', '%s', '%s', '%s', '%s']
-        );
+        $data = [
+            'video_url' => $url,
+            'video_hash' => $video_hash,
+            'short_url' => $short_url,
+            'transcription' => $transcription,
+            'analysis' => $analysis,
+        ];
+        $formats = ['%s', '%s', '%s', '%s', '%s'];
+
+        // Append any provided metrics with the correct format specifiers.
+        $metric_formats = [
+            'platform' => '%s',
+            'openai_prompt_tokens' => '%d',
+            'openai_completion_tokens' => '%d',
+            'openai_cost' => '%f',
+            'whisper_seconds' => '%f',
+            'whisper_cost' => '%f',
+            'proxy_bytes' => '%d',
+            'proxy_cost' => '%f',
+            'total_cost' => '%f',
+        ];
+        foreach ($metric_formats as $key => $fmt) {
+            if (array_key_exists($key, $metrics) && $metrics[$key] !== null) {
+                $data[$key] = $metrics[$key];
+                $formats[] = $fmt;
+            }
+        }
+
+        $result = $this->wpdb->insert($this->table_name, $data, $formats);
 
         if ($result === false) {
             $this->logger->log("Failed to cache result for URL: " . $url, 'error');
@@ -56,6 +79,45 @@ class CacheManager {
         }
 
         return $short_url;
+    }
+
+    /**
+     * Canonical schema for the cache table. Used by both the activation hook and
+     * the versioned migration so they never drift. dbDelta adds missing columns.
+     */
+    public static function get_schema_sql($table_name, $charset_collate) {
+        return "CREATE TABLE $table_name (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            video_url varchar(2048) NOT NULL,
+            video_hash varchar(32) NOT NULL,
+            short_url varchar(10) NOT NULL,
+            transcription longtext,
+            analysis longtext,
+            platform varchar(20) DEFAULT NULL,
+            openai_prompt_tokens int(11) DEFAULT NULL,
+            openai_completion_tokens int(11) DEFAULT NULL,
+            openai_cost decimal(10,6) DEFAULT NULL,
+            whisper_seconds decimal(10,2) DEFAULT NULL,
+            whisper_cost decimal(10,6) DEFAULT NULL,
+            proxy_bytes bigint(20) DEFAULT NULL,
+            proxy_cost decimal(10,6) DEFAULT NULL,
+            total_cost decimal(10,6) DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY video_hash (video_hash),
+            UNIQUE KEY short_url (short_url)
+        ) $charset_collate;";
+    }
+
+    /**
+     * Run dbDelta to create/upgrade the table. Safe to call repeatedly.
+     */
+    public static function ensure_schema() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'vfc_cache';
+        $charset_collate = $wpdb->get_charset_collate();
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta(self::get_schema_sql($table_name, $charset_collate));
     }
 
     /**
@@ -77,8 +139,34 @@ class CacheManager {
      * Get all transcriptions (ordered newest first)
      */
     public function get_all_transcriptions() {
-        $sql = "SELECT id, video_url, short_url, transcription, analysis, created_at FROM {$this->table_name} ORDER BY created_at DESC, id DESC";
+        $sql = "SELECT id, video_url, short_url, transcription, analysis, created_at,
+                       platform, openai_cost, whisper_cost, proxy_cost, total_cost
+                FROM {$this->table_name} ORDER BY created_at DESC, id DESC";
         return $this->wpdb->get_results($sql);
+    }
+
+    /**
+     * Sum total_cost (and per-service costs) for rows created since a given
+     * MySQL datetime (site timezone). Returns an object with the summed columns.
+     */
+    public function get_cost_summary($since_datetime = null) {
+        $where = '';
+        $params = [];
+        if ($since_datetime !== null) {
+            $where = ' WHERE created_at >= %s';
+            $params[] = $since_datetime;
+        }
+        $sql = "SELECT
+                    COUNT(*) AS runs,
+                    COALESCE(SUM(openai_cost),0) AS openai_cost,
+                    COALESCE(SUM(whisper_cost),0) AS whisper_cost,
+                    COALESCE(SUM(proxy_cost),0) AS proxy_cost,
+                    COALESCE(SUM(total_cost),0) AS total_cost
+                FROM {$this->table_name}" . $where;
+        if ($params) {
+            $sql = $this->wpdb->prepare($sql, $params);
+        }
+        return $this->wpdb->get_row($sql);
     }
 
     public function get_by_short_url($short_url) {

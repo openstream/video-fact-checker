@@ -5,18 +5,74 @@ class VideoProcessor {
     private $logger;
     private $upload_dir;
 
+    // Metrics captured during the last download, read by the AJAX layer for cost
+    // accounting. Reset at the start of each download_video() call.
+    private $last_download_bytes = 0;
+    private $last_audio_seconds = 0.0;
+    private $last_is_youtube = false;
+
     public function __construct() {
         $this->logger = new Logger();
         $upload_dir = wp_upload_dir();
         $this->upload_dir = $upload_dir['basedir'] . '/video-fact-checker';
-        
+
         // Ensure upload directory exists
         if (!file_exists($this->upload_dir)) {
             wp_mkdir_p($this->upload_dir);
         }
     }
 
+    public function get_last_download_bytes() { return $this->last_download_bytes; }
+    public function get_last_audio_seconds() { return $this->last_audio_seconds; }
+    public function get_last_is_youtube() { return $this->last_is_youtube; }
+
+    /**
+     * Read the audio duration (seconds) of a media file via ffprobe.
+     * Returns 0.0 on any failure — cost accounting treats that as "unknown".
+     */
+    private function probe_audio_seconds($file) {
+        if (!is_string($file) || !file_exists($file)) {
+            return 0.0;
+        }
+        $cmd = sprintf(
+            'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null',
+            escapeshellarg($file)
+        );
+        $out = trim((string) shell_exec($cmd));
+        return is_numeric($out) ? (float) $out : 0.0;
+    }
+
+    /**
+     * Parse the total downloaded size (bytes) from yt-dlp output lines like
+     * "[download] 100% of 13.18MiB in 00:00:00". Returns the largest match found
+     * (the final total), or 0 if none.
+     */
+    private function parse_downloaded_bytes($text) {
+        if (!is_string($text) || $text === '') {
+            return 0;
+        }
+        $units = ['B' => 1, 'KIB' => 1024, 'MIB' => 1048576, 'GIB' => 1073741824,
+                  'KB' => 1000, 'MB' => 1000000, 'GB' => 1000000000];
+        $max = 0;
+        if (preg_match_all('/of\s+~?\s*([0-9]+(?:\.[0-9]+)?)\s*([KMG]?i?B)/i', $text, $m, PREG_SET_ORDER)) {
+            foreach ($m as $match) {
+                $num = (float) $match[1];
+                $unit = strtoupper($match[2]);
+                $bytes = (int) round($num * ($units[$unit] ?? 1));
+                if ($bytes > $max) {
+                    $max = $bytes;
+                }
+            }
+        }
+        return $max;
+    }
+
     public function download_video($url) {
+        // Reset per-run metrics.
+        $this->last_download_bytes = 0;
+        $this->last_audio_seconds = 0.0;
+        $this->last_is_youtube = $this->is_youtube_url($url);
+
         try {
             // Quick dependency check for clearer error messages
             try {
@@ -211,8 +267,24 @@ class VideoProcessor {
             }
             
             $this->logger->log("Found MP3 file: " . $mp3_file);
+
+            // Capture metrics for cost accounting.
+            // Audio duration drives the Whisper cost.
+            $this->last_audio_seconds = $this->probe_audio_seconds($mp3_file);
+            // Downloaded bytes drive the proxy cost. Prefer the size yt-dlp reports
+            // (the actual video traffic); fall back to the mp3 size if not parseable.
+            $downloaded = $this->parse_downloaded_bytes(isset($output) && is_array($output) ? implode("\n", $output) : '');
+            if ($downloaded <= 0) {
+                $downloaded = (int) @filesize($mp3_file);
+            }
+            $this->last_download_bytes = $downloaded;
+            $this->logger->log(sprintf(
+                "Run metrics: audio_seconds=%.2f download_bytes=%d youtube=%s",
+                $this->last_audio_seconds, $this->last_download_bytes, $this->last_is_youtube ? 'yes' : 'no'
+            ));
+
             return $mp3_file;
-            
+
         } catch (\Exception $e) {
             $this->logger->log("=== Error in download_video ===");
             $this->logger->log("Error message: " . $e->getMessage());

@@ -69,6 +69,53 @@ class Notifier {
     }
 
     /**
+     * If today's spend exceeds the configured daily budget, email the admin.
+     * De-duplicated per day so at most one alert per calendar day is sent.
+     */
+    public function check_daily_budget() {
+        $budget = get_option('vfc_daily_cost_budget', '');
+        if ($budget === '' || !is_numeric($budget) || (float) $budget <= 0) {
+            return; // budget alerts disabled
+        }
+        $budget = (float) $budget;
+
+        $to = $this->recipient();
+        if (!$to || !is_email($to)) {
+            return;
+        }
+
+        $cache = new CacheManager();
+        $today_start = current_time('Y-m-d') . ' 00:00:00';
+        $summary = $cache->get_cost_summary($today_start);
+        $spent = $summary ? (float) $summary->total_cost : 0.0;
+
+        if ($spent < $budget) {
+            return;
+        }
+
+        // One alert per day max.
+        $day_key = 'vfc_budget_alert_' . current_time('Ymd');
+        if (get_transient($day_key)) {
+            return;
+        }
+        set_transient($day_key, 1, DAY_IN_SECONDS);
+
+        $site = wp_parse_url(home_url(), PHP_URL_HOST);
+        $subject = sprintf('[Video Fact Checker] Daily budget exceeded on %s', $site);
+        $budget_str = $budget < 1 ? rtrim(rtrim(sprintf('%.4f', $budget), '0'), '.') : sprintf('%.2f', $budget);
+        $body  = sprintf("Today's fact-check spend has reached \$%.4f, exceeding the daily budget of \$%s.\n\n",
+            $spent, $budget_str);
+        $body .= sprintf("Runs today: %d\n", $summary ? (int) $summary->runs : 0);
+        $body .= sprintf("  OpenAI:  \$%.4f\n", $summary ? (float) $summary->openai_cost : 0);
+        $body .= sprintf("  Whisper: \$%.4f\n", $summary ? (float) $summary->whisper_cost : 0);
+        $body .= sprintf("  Proxy:   \$%.4f\n", $summary ? (float) $summary->proxy_cost : 0);
+        $body .= "\nTime: " . current_time('Y-m-d H:i:s') . "\n";
+
+        $sent = wp_mail($to, $subject, $body);
+        $this->logger->log("Daily budget alert " . ($sent ? "sent" : "FAILED") . " to {$to} (spent \${$spent} / budget \${$budget})");
+    }
+
+    /**
      * Mail the full log file as an attachment, then rotate (truncate) it so it
      * doesn't grow without bound. Intended to run once a day via WP-Cron.
      */

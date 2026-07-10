@@ -133,10 +133,25 @@ class Ajax {
             // Cached hits return earlier and are intentionally not counted.
             $this->rate_limiter->record($rate_bucket);
 
+            // Compute per-run cost metrics from the measured usage.
+            $calc = new CostCalculator();
+            $metrics = $calc->build_metrics(
+                $rate_bucket, // 'youtube' | 'other'
+                $this->fact_checker->get_last_prompt_tokens(),
+                $this->fact_checker->get_last_completion_tokens(),
+                $this->processor->get_last_audio_seconds(),
+                $this->processor->get_last_download_bytes(),
+                $this->processor->get_last_is_youtube()
+            );
+            $this->logger->log(sprintf(
+                "Run cost: openai=$%.4f whisper=$%.4f proxy=$%.4f total=$%.4f",
+                $metrics['openai_cost'], $metrics['whisper_cost'], $metrics['proxy_cost'], $metrics['total_cost']
+            ));
+
             // Cache result (unless nocache is requested)
             $short_url = null;
             if (!$nocache) {
-                $short_url = $cache_manager->cache_result($url, $transcription, $analysis);
+                $short_url = $cache_manager->cache_result($url, $transcription, $analysis, $metrics);
                 $this->logger->log("Generated short URL: " . $short_url);
 
                 if (!$short_url) {
@@ -149,6 +164,17 @@ class Ajax {
             }
 
             $this->set_status('complete');
+
+            // Check the daily budget now that this run's cost is persisted.
+            // (Only meaningful for cached runs, which are the ones written to the DB;
+            // deduplicated to one alert per day inside the notifier.)
+            if (!$nocache) {
+                try {
+                    (new Notifier($this->logger))->check_daily_budget();
+                } catch (\Throwable $budgetError) {
+                    $this->logger->log("Budget check failed: " . $budgetError->getMessage(), 'error');
+                }
+            }
 
             wp_send_json_success([
                 'transcription' => $transcription,

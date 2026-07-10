@@ -32,6 +32,18 @@ class Admin {
         register_setting('vfc_settings', 'vfc_enable_logging');
         register_setting('vfc_settings', 'vfc_openai_model');
         register_setting('vfc_settings', 'vfc_output_format');
+
+        // Cost accounting: pricing rates (USD) and daily budget.
+        $float = ['type' => 'number', 'sanitize_callback' => [$this, 'sanitize_float']];
+        register_setting('vfc_settings', 'vfc_price_chat_input_per_1m', $float);   // $ / 1M input tokens
+        register_setting('vfc_settings', 'vfc_price_chat_output_per_1m', $float);  // $ / 1M output tokens
+        register_setting('vfc_settings', 'vfc_price_whisper_per_min', $float);     // $ / audio minute
+        register_setting('vfc_settings', 'vfc_price_proxy_per_gb', $float);        // $ / GB proxy traffic
+        register_setting('vfc_settings', 'vfc_daily_cost_budget', $float);         // $ / day alert threshold
+        register_setting('vfc_settings', 'vfc_notify_email', [
+            'type' => 'string',
+            'sanitize_callback' => [$this, 'sanitize_email_option'],
+        ]);
         // yt-dlp proxy settings (YouTube only)
         register_setting('vfc_settings', 'vfc_ytdlp_proxy_address', [
             'type' => 'string',
@@ -56,6 +68,20 @@ class Admin {
     }
 
 
+
+    public function sanitize_float($value) {
+        if ($value === '' || $value === null) return '';
+        $value = str_replace(',', '.', (string) $value);
+        if (!is_numeric($value)) return '';
+        $num = (float) $value;
+        return $num < 0 ? '' : (string) $num;
+    }
+
+    public function sanitize_email_option($value) {
+        $value = is_string($value) ? trim($value) : '';
+        if ($value === '') return '';
+        return is_email($value) ? $value : '';
+    }
 
     public function sanitize_proxy_address($value) {
         if (!is_string($value)) return '';
@@ -86,6 +112,41 @@ class Admin {
         $cache = new CacheManager();
         $items = $cache->get_all_transcriptions();
         echo '<div class="wrap"><h1>All Transcriptions</h1>';
+
+        // Cost summary (today / this month / all-time avg).
+        $today_start = current_time('Y-m-d') . ' 00:00:00';
+        $month_start = current_time('Y-m') . '-01 00:00:00';
+        $today = $cache->get_cost_summary($today_start);
+        $month = $cache->get_cost_summary($month_start);
+        $all   = $cache->get_cost_summary(null);
+        $fmt = function($v) { return '$' . number_format((float) $v, 4); };
+        $avg = ($all && $all->runs > 0) ? ((float) $all->total_cost / (int) $all->runs) : 0.0;
+
+        echo '<div class="vfc-cost-summary" style="display:flex;gap:24px;flex-wrap:wrap;margin:12px 0 20px;">';
+        foreach ([
+            ['Today', $today],
+            ['This month', $month],
+            ['All time', $all],
+        ] as $box) {
+            list($label, $s) = $box;
+            $runs = $s ? (int) $s->runs : 0;
+            echo '<div style="border:1px solid #ccd0d4;border-radius:6px;padding:10px 14px;background:#fff;min-width:180px;">';
+            echo '<div style="font-weight:600;">' . esc_html($label) . '</div>';
+            echo '<div style="font-size:20px;margin:4px 0;">' . esc_html($fmt($s ? $s->total_cost : 0)) . '</div>';
+            echo '<div style="color:#666;font-size:12px;">' . esc_html($runs) . ' runs · '
+                . 'OpenAI ' . esc_html($fmt($s ? $s->openai_cost : 0))
+                . ' · Whisper ' . esc_html($fmt($s ? $s->whisper_cost : 0))
+                . ' · Proxy ' . esc_html($fmt($s ? $s->proxy_cost : 0))
+                . '</div>';
+            echo '</div>';
+        }
+        echo '<div style="border:1px solid #ccd0d4;border-radius:6px;padding:10px 14px;background:#fff;min-width:180px;">';
+        echo '<div style="font-weight:600;">Avg / fact check</div>';
+        echo '<div style="font-size:20px;margin:4px 0;">' . esc_html($fmt($avg)) . '</div>';
+        echo '<div style="color:#666;font-size:12px;">across ' . esc_html($all ? (int) $all->runs : 0) . ' runs</div>';
+        echo '</div>';
+        echo '</div>';
+
         if (empty($items)) {
             echo '<p>No transcriptions found.</p></div>';
             return;
@@ -97,6 +158,7 @@ class Admin {
         echo '<th>Video</th>';
         echo '<th>Short URL</th>';
         echo '<th>Transcript Size</th>';
+        echo '<th>Cost</th>';
         echo '<th>Analysis Summary</th>';
         echo '<th>Fact Check</th>';
         echo '</tr></thead><tbody>';
@@ -107,13 +169,31 @@ class Admin {
             $short_slug = esc_attr($row->short_url);
             $public_url = home_url('/share/' . $short_slug);
 
-            // Platform from host
-            $host = '';
-            $parsed = @parse_url($video_url_raw);
-            if (is_array($parsed) && isset($parsed['host'])) {
-                $host = $parsed['host'];
+            // Platform: prefer the stored bucket, else fall back to the URL host.
+            if (!empty($row->platform)) {
+                $platform = esc_html($row->platform);
+            } else {
+                $host = '';
+                $parsed = @parse_url($video_url_raw);
+                if (is_array($parsed) && isset($parsed['host'])) {
+                    $host = $parsed['host'];
+                }
+                $platform = esc_html($host ?: '—');
             }
-            $platform = esc_html($host ?: '—');
+
+            // Per-run cost (may be null for pre-cost-tracking rows).
+            $total_cost = isset($row->total_cost) && $row->total_cost !== null ? (float) $row->total_cost : null;
+            if ($total_cost === null) {
+                $cost_cell = '<span style="color:#999;">—</span>';
+            } else {
+                $breakdown = sprintf(
+                    'OpenAI $%s · Whisper $%s · Proxy $%s',
+                    number_format((float) $row->openai_cost, 4),
+                    number_format((float) $row->whisper_cost, 4),
+                    number_format((float) $row->proxy_cost, 4)
+                );
+                $cost_cell = '<span title="' . esc_attr($breakdown) . '">$' . esc_html(number_format($total_cost, 4)) . '</span>';
+            }
 
 
 
@@ -146,6 +226,7 @@ class Admin {
                 . ' <button class="button button-small vfc-copy" data-copy="' . esc_attr($public_url) . '">Copy</button>'
                 . '</td>';
             echo '<td>' . esc_html($transcript_label) . '</td>';
+            echo '<td>' . $cost_cell . '</td>';
             echo '<td>' . $summary_html . '</td>';
             echo '<td><a href="' . esc_url($public_url) . '" target="_blank" rel="noopener">Open fact check</a></td>';
             echo '</tr>';

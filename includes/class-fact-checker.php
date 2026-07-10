@@ -5,15 +5,26 @@ class FactChecker {
     private $api_key;
     private $model;
     private $logger;
-    
+
+    // Usage from the last check_facts() call, for cost accounting.
+    private $last_prompt_tokens = 0;
+    private $last_completion_tokens = 0;
+
     public function __construct() {
         $this->api_key = get_option('vfc_openai_api_key');
-        $this->model = get_option('vfc_openai_model', 'gpt-3.5-turbo');
+        $this->model = get_option('vfc_openai_model', 'gpt-4o-mini');
         $this->logger = new Logger();
     }
+
+    public function get_last_prompt_tokens() { return $this->last_prompt_tokens; }
+    public function get_last_completion_tokens() { return $this->last_completion_tokens; }
+    public function get_model() { return $this->model; }
     
     public function check_facts($transcription) {
         $this->logger->log("Starting fact check for transcription");
+        // Reset per-run usage.
+        $this->last_prompt_tokens = 0;
+        $this->last_completion_tokens = 0;
         
         $prompt = "Please fact check the following text and provide a detailed analysis. " .
                   "Highlight any claims that are verifiable and indicate their accuracy. " .
@@ -47,6 +58,17 @@ class FactChecker {
         }
         
         $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        // Capture token usage for cost accounting (present on Chat Completions).
+        if (isset($body['usage'])) {
+            $this->last_prompt_tokens = (int) ($body['usage']['prompt_tokens'] ?? 0);
+            $this->last_completion_tokens = (int) ($body['usage']['completion_tokens'] ?? 0);
+            $this->logger->log(sprintf(
+                "OpenAI usage: prompt=%d completion=%d",
+                $this->last_prompt_tokens, $this->last_completion_tokens
+            ));
+        }
+
         return $this->format_response($body['choices'][0]['message']['content']);
     }
     
