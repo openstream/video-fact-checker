@@ -29,15 +29,30 @@ Nothing here is committed to a delivery date yet; it captures direction and deci
 
 ## Current status
 
-**Done (this iteration):**
+**Done:**
 - Free-tier daily limits enforced: YouTube 1/day, other 3/day
   (`RateLimiter`, wired into `Ajax::handle_process_video`).
 - Limits are filterable via `vfc_rate_limit` (`$default, $bucket, $user_key`) so paid
   tiers can raise them per user without changing enforcement logic.
 - Proxy `407` error now distinguishes "traffic/plan limit exhausted" from "bad credentials"
   by surfacing the proxy's own `x-error-message`.
+- Model dropdown updated to current OpenAI models (gpt-4.1 family + gpt-4o family);
+  reasoning models intentionally excluded (would need `max_completion_tokens` /
+  no custom temperature in `class-fact-checker.php`).
+- TikTok "silent HEVC" fix: some TikTok videos advertise audio on every format but
+  serve a silent HEVC stream, breaking `-x`. Non-YouTube downloads now use
+  `-f download/bestaudio/best`, preferring TikTok's combined h264+aac format.
+- Error reporting reworked (`class-notifier.php`):
+  - Raw yt-dlp/ffmpeg output no longer shown in the UI — mapped to one concise
+    message (`summarize_download_error`); full output stays in the log via Ref id.
+  - Compact error panel, no "Try Again" button, shows "Our team has been notified…".
+  - Admin gets an email on every failed run (de-duplicated 10 min per signature).
+  - Daily WP-Cron (`vfc_daily_log_email`, ~03:00) mails the full log as an
+    attachment to `admin_email` (override via `vfc_notify_email`), then rotates the log.
+- Assets enqueued with `filemtime()` version so browsers pick up CSS/JS changes
+  immediately.
 
-**Not yet built:** everything below.
+**Not yet built:** everything below (monetization/accounts/payments).
 
 ## Phase 1 — Foundations for monetization
 
@@ -70,8 +85,9 @@ Nothing here is committed to a delivery date yet; it captures direction and deci
       or adding a lightweight challenge.
 - [ ] **Global YouTube spend cap.** A site-wide daily ceiling on YouTube runs so a spike in
       paid usage can't blow the proxy budget unexpectedly. Alert when near the cap.
-- [ ] **Proxy limit monitoring.** Proactively surface the proxy's remaining traffic
-      allowance (now that we parse its `x-error-message`) before it hard-fails with 407.
+- [~] **Proxy limit monitoring.** Reactive part done: a 407 traffic-limit failure now
+      produces a clear message + an admin email. Still TODO: *proactively* surface the
+      proxy's remaining traffic allowance before it hard-fails.
 
 ## Phase 4 — Product polish
 
