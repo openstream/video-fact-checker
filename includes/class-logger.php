@@ -17,6 +17,10 @@ class Logger {
         $this->ensureLogFile();
     }
 
+    public function get_log_file() {
+        return $this->log_file;
+    }
+
     public function log($message, $level = 'info', $context = []) {
         if (!$this->enabled) {
             return;

@@ -190,40 +190,16 @@ class VideoProcessor {
 
             if ($return_var !== 0) {
                 $error_output = !empty($output) ? implode("\n", $output) : 'No output';
-                $hint = '';
-                
-                // Proxy-specific error hints
-                if (stripos($error_output, '407 Proxy Authentication Required') !== false) {
-                    // A 407 can mean bad credentials OR an exhausted plan/traffic limit.
-                    // The proxy usually explains which via an x-error-message header that
-                    // yt-dlp surfaces in its output — bubble it up so the cause is obvious.
-                    $proxy_msg = $this->extract_proxy_error_message($error_output);
-                    if ($proxy_msg !== '' && (stripos($proxy_msg, 'limit') !== false || stripos($proxy_msg, 'traffic') !== false || stripos($proxy_msg, 'quota') !== false)) {
-                        $hint = "\n\nHint: The proxy rejected the request (407) because its traffic/plan limit is exhausted, not because of wrong credentials. Proxy said: \"" . $proxy_msg . "\". Top up or raise the limit with your proxy provider, or configure a different proxy in Settings > Fact Checker.";
-                    } elseif ($proxy_msg !== '') {
-                        $hint = "\n\nHint: The proxy rejected the request (407). Proxy said: \"" . $proxy_msg . "\". Check your proxy credentials and plan status in Settings > Fact Checker.";
-                    } else {
-                        $hint = "\n\nHint: The proxy rejected the request (407 Proxy Authentication Required). This usually means the proxy credentials are wrong OR the proxy's traffic/plan limit is exhausted. Verify both in Settings > Fact Checker.";
-                    }
-                } elseif (stripos($error_output, '522 status code 522') !== false) {
-                    $hint = "\n\nHint: Proxy server connection timeout (522 error). The proxy server may be down or unreachable.";
-                } elseif (stripos($error_output, 'Tunnel connection failed') !== false) {
-                    $hint = "\n\nHint: Proxy tunnel connection failed. Check proxy address, port, and credentials.";
-                } elseif (stripos($error_output, 'Sign in to confirm you\'re not a bot') !== false || stripos($error_output, 'cookies') !== false) {
-                    $hint = "\n\nHint: YouTube may require authentication. Ensure a valid Netscape-format cookies.txt is present in the plugin directory.";
-                }
-                
-                if (stripos($error_output, 'unable to obtain file audio codec') !== false) {
-                    // ffprobe/ffmpeg are present but the downloaded stream has no usable
-                    // audio track (e.g. a silent HEVC variant some TikTok videos serve).
-                    $hint .= "\n\nHint: The downloaded video had no readable audio track (some source formats ship silent video). This video may not contain extractable audio.";
-                } elseif (stripos($error_output, 'ffmpeg') !== false || stripos($error_output, 'ffprobe') !== false) {
-                    $hint .= "\n\nHint: ffmpeg/ffprobe might be missing. Install them and make sure they are on PATH.";
-                }
-                
-                // Format for HTML display
-                $formatted_output = '<pre>' . htmlspecialchars($error_output . $hint) . '</pre>';
-                throw new \Exception('Failed to download and convert video. Exit code: ' . $return_var . '<br>Output:<br>' . $formatted_output);
+
+                // The full yt-dlp output (progress bars, format lines, stack noise) is
+                // already written to the log above. Never surface it in the UI — instead
+                // map it to a single concise, human-readable message.
+                $message = $this->summarize_download_error($error_output);
+
+                // Keep the raw output in the log for debugging, tied to the request id.
+                $this->logger->log("Download failed (exit {$return_var}): " . $error_output, 'error');
+
+                throw new \Exception($message);
             }
 
             // Find the generated MP3 file
@@ -340,6 +316,46 @@ class VideoProcessor {
             }
         }
         return $command;
+    }
+
+    /**
+     * Turn raw yt-dlp/ffmpeg error output into a single concise, user-facing sentence.
+     * The full technical output stays in the log; the UI only sees this.
+     */
+    private function summarize_download_error($error_output) {
+        if (!is_string($error_output)) {
+            $error_output = '';
+        }
+
+        // Proxy: 407 — distinguish exhausted plan from bad credentials.
+        if (stripos($error_output, '407 Proxy Authentication Required') !== false) {
+            $proxy_msg = $this->extract_proxy_error_message($error_output);
+            if ($proxy_msg !== '' && (stripos($proxy_msg, 'limit') !== false || stripos($proxy_msg, 'traffic') !== false || stripos($proxy_msg, 'quota') !== false)) {
+                return "The video service is temporarily unavailable (proxy traffic limit reached). Please try again later.";
+            }
+            return "The video service is temporarily unavailable (proxy authentication failed). Please try again later.";
+        }
+        if (stripos($error_output, '522 status code 522') !== false) {
+            return "The video service is temporarily unavailable (connection timeout). Please try again later.";
+        }
+        if (stripos($error_output, 'Tunnel connection failed') !== false) {
+            return "The video service is temporarily unavailable (connection failed). Please try again later.";
+        }
+        if (stripos($error_output, "Sign in to confirm you're not a bot") !== false || stripos($error_output, 'cookies') !== false) {
+            return "This video requires sign-in and can't be processed right now.";
+        }
+        if (stripos($error_output, 'unable to obtain file audio codec') !== false) {
+            return "This video has no readable audio track, so it can't be fact-checked.";
+        }
+        if (stripos($error_output, 'Video unavailable') !== false || stripos($error_output, 'This video is not available') !== false) {
+            return "This video is unavailable or private and can't be accessed.";
+        }
+        if (stripos($error_output, 'Unsupported URL') !== false || stripos($error_output, 'is not a valid URL') !== false) {
+            return "This link isn't a supported video URL. Please check the address and try again.";
+        }
+
+        // Fallback: generic, no raw output.
+        return "This video couldn't be downloaded. Please check the link or try a different video.";
     }
 
     private function extract_proxy_error_message($error_output) {

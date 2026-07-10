@@ -164,9 +164,24 @@ class Ajax {
             // Ensure progress checker stops polling
             $this->set_status('error');
 
+            $ref = $this->logger->getCurrentVideoId();
+
+            // Notify the admin by email (de-duplicated inside the notifier).
+            try {
+                $notifier = new Notifier($this->logger);
+                $notifier->notify_error(
+                    $e->getMessage(),
+                    $e->getTraceAsString(),
+                    isset($url) ? $url : '',
+                    $ref
+                );
+            } catch (\Throwable $notifyError) {
+                $this->logger->log("Failed to send admin error mail: " . $notifyError->getMessage(), 'error');
+            }
+
             // Send minimal info to user, full details are in the log
             $error_payload = [
-                'message' => $e->getMessage() . ' (Ref: ' . $this->logger->getCurrentVideoId() . ')'
+                'message' => $e->getMessage() . ' (Ref: ' . $ref . ')'
             ];
             wp_send_json_error($error_payload);
         }

@@ -5,6 +5,14 @@ jQuery(document).ready(function($) {
     const statusMessage = $('#status-message');
     const resultsContainer = $('#results-container');
 
+    // Dedicated container for error messages, kept separate from the results
+    // markup so rendering an error never destroys the transcription/analysis DOM.
+    let errorContainer = $('#error-container');
+    if (!errorContainer.length) {
+        errorContainer = $('<div id="error-container" style="display:none;"></div>');
+        resultsContainer.before(errorContainer);
+    }
+
     console.log('Video Fact Checker initialized');
 
     form.on('submit', function(e) {
@@ -12,9 +20,10 @@ jQuery(document).ready(function($) {
         const videoUrl = $('#video-url').val();
         console.log('Processing video URL:', videoUrl);
         
-        // Show progress container and hide results
+        // Show progress container and clear any previous results/errors
         progressContainer.show();
         resultsContainer.hide();
+        errorContainer.hide().empty();
         analyzeBtn.prop('disabled', true);
         
         updateStatus('starting');
@@ -117,9 +126,15 @@ jQuery(document).ready(function($) {
         const analysisContent = $('#analysis-result .content');
 
         progressContainer.fadeOut(400, function() {
+            // Clear any error from a previous attempt so success and error states
+            // never show at the same time.
+            errorContainer.hide().empty();
+            // Remove a share section left over from a previous run before re-adding.
+            resultsContainer.find('.share-section').remove();
+
             transcriptionContent.text(data.transcription);
             analysisContent.html(data.analysis);
-            
+
             if (data.short_url) {
                 const shareUrl = `${window.location.origin}/share/${data.short_url}`;
                 const shareHtml = `
@@ -154,14 +169,21 @@ jQuery(document).ready(function($) {
     function displayError(message) {
         console.error('Error:', message);
         progressContainer.fadeOut(400, function() {
+            // Hide any previous successful result so success and error states
+            // never show at the same time. Render the error in its own container
+            // so the results markup (#transcription-result etc.) stays intact.
+            resultsContainer.hide();
+
             const errorHtml = `
                 <div class="error-message">
-                    <p>Error: </p>
-                    <div class="error-details" style="white-space: pre-wrap;">${message}</div>
-                    <button onclick="location.reload()">Try Again</button>
+                    <span class="error-text"></span>
+                    <span class="error-note">Our team has been notified and will look into it.</span>
                 </div>
             `;
-            resultsContainer.html(errorHtml).fadeIn(400);
+            errorContainer.html(errorHtml);
+            // Set text via .text() so the message can never inject markup.
+            errorContainer.find('.error-text').text(message);
+            errorContainer.fadeIn(400);
             analyzeBtn.prop('disabled', false);
         });
     }

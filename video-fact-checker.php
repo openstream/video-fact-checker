@@ -87,18 +87,25 @@ function vfc_render_form() {
 
 // Enqueue scripts and styles
 function vfc_enqueue_scripts() {
+    // Use file modification time as the asset version so browsers pick up
+    // CSS/JS changes immediately instead of serving a stale cached copy.
+    $css_path = VFC_PLUGIN_DIR . 'assets/css/style.css';
+    $js_path  = VFC_PLUGIN_DIR . 'js/video-fact-checker.js';
+    $css_ver  = file_exists($css_path) ? filemtime($css_path) : '1.0.0';
+    $js_ver   = file_exists($js_path) ? filemtime($js_path) : '1.0.0';
+
     wp_enqueue_style(
         'video-fact-checker',
         VFC_PLUGIN_URL . 'assets/css/style.css',
         [],
-        '1.0.0'
+        $css_ver
     );
-    
+
     wp_enqueue_script(
         'video-fact-checker',
         VFC_PLUGIN_URL . 'js/video-fact-checker.js',
         ['jquery'],
-        '1.0.0',
+        $js_ver,
         true
     );
     
@@ -142,14 +149,40 @@ register_activation_hook(__FILE__, function() {
 
     // Add rewrite rules
     vfc_add_rewrite_rules();
-    
+
     // Flush rewrite rules
     flush_rewrite_rules();
+
+    // Schedule the daily log email (roughly 03:00 site time on first run).
+    if (!wp_next_scheduled('vfc_daily_log_email')) {
+        $first = strtotime('tomorrow 03:00');
+        wp_schedule_event($first ?: time() + DAY_IN_SECONDS, 'daily', 'vfc_daily_log_email');
+    }
 });
 
 // Also flush rules on deactivation
 register_deactivation_hook(__FILE__, function() {
     flush_rewrite_rules();
+
+    // Remove the scheduled daily log email.
+    $timestamp = wp_next_scheduled('vfc_daily_log_email');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'vfc_daily_log_email');
+    }
+});
+
+// Daily cron: mail the log file to the admin, then rotate it.
+add_action('vfc_daily_log_email', function() {
+    (new VideoFactChecker\Notifier())->send_daily_log();
+});
+
+// Safety net: if the plugin was updated (not reactivated) and the event isn't
+// scheduled yet, schedule it on a normal request.
+add_action('init', function() {
+    if (!wp_next_scheduled('vfc_daily_log_email')) {
+        $first = strtotime('tomorrow 03:00');
+        wp_schedule_event($first ?: time() + DAY_IN_SECONDS, 'daily', 'vfc_daily_log_email');
+    }
 });
 
 // Add these new functions

@@ -116,12 +116,26 @@
 
 /* Error Messages */
 .error-message {
-    color: #dc3232;
-    background: #fce4e4;
-    padding: 10px;
-    border-radius: 4px;
-    margin: 10px 0;
-    border: 1px solid #fcc;
+    color: #8a1f1f;
+    background: #fef4f4;
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin: 12px 0;
+    border: 1px solid #f3caca;
+    border-left: 4px solid #dc3232;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.error-message .error-text {
+    display: block;
+}
+
+.error-message .error-note {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    color: #a05252;
 }
 
 /* Responsive Design */
