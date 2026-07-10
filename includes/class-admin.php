@@ -34,9 +34,9 @@ class Admin {
         register_setting('vfc_settings', 'vfc_output_format');
 
         // Cost accounting: pricing rates (USD) and daily budget.
+        // OpenAI chat pricing is derived from the selected model (CostCalculator::MODEL_PRICING),
+        // so there are no manual chat-token fields here.
         $float = ['type' => 'number', 'sanitize_callback' => [$this, 'sanitize_float']];
-        register_setting('vfc_settings', 'vfc_price_chat_input_per_1m', $float);   // $ / 1M input tokens
-        register_setting('vfc_settings', 'vfc_price_chat_output_per_1m', $float);  // $ / 1M output tokens
         register_setting('vfc_settings', 'vfc_price_whisper_per_min', $float);     // $ / audio minute
         register_setting('vfc_settings', 'vfc_price_proxy_per_gb', $float);        // $ / GB proxy traffic
         register_setting('vfc_settings', 'vfc_daily_cost_budget', $float);         // $ / day alert threshold

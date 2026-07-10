@@ -11,10 +11,28 @@ namespace VideoFactChecker;
 class CostCalculator {
 
     // Defaults (USD).
-    const DEFAULT_CHAT_INPUT_PER_1M  = 0.15;   // gpt-4o-mini input  ($/1M tokens)
-    const DEFAULT_CHAT_OUTPUT_PER_1M = 0.60;   // gpt-4o-mini output ($/1M tokens)
-    const DEFAULT_WHISPER_PER_MIN    = 0.006;  // whisper-1 ($/audio minute)
-    const DEFAULT_PROXY_PER_GB       = 3.00;   // typical residential proxy ($/GB) — tune to your plan
+    const DEFAULT_WHISPER_PER_MIN = 0.006;  // whisper-1 ($/audio minute)
+    const DEFAULT_PROXY_PER_GB    = 3.75;   // Decodo residential, 3 GB plan ($/GB)
+
+    /**
+     * Single source of truth for chat model pricing: model id => [input, output]
+     * in USD per 1M tokens. The settings dropdown and the cost calculation both
+     * read from here, so prices never drift between the two.
+     */
+    const MODEL_PRICING = [
+        'gpt-4.1'      => [2.00, 8.00],
+        'gpt-4.1-mini' => [0.40, 1.60],
+        'gpt-4.1-nano' => [0.10, 0.40],
+        'gpt-4o'       => [2.50, 10.00],
+        'gpt-4o-mini'  => [0.15, 0.60],
+    ];
+
+    /** Fallback pricing when the configured model is unknown (use gpt-4o-mini). */
+    const FALLBACK_PRICING = [0.15, 0.60];
+
+    public static function pricing_for($model) {
+        return self::MODEL_PRICING[$model] ?? self::FALLBACK_PRICING;
+    }
 
     private function rate($option, $default) {
         $v = get_option($option, '');
@@ -24,14 +42,20 @@ class CostCalculator {
         return (float) $v;
     }
 
-    public function chat_input_per_1m()  { return $this->rate('vfc_price_chat_input_per_1m',  self::DEFAULT_CHAT_INPUT_PER_1M); }
-    public function chat_output_per_1m() { return $this->rate('vfc_price_chat_output_per_1m', self::DEFAULT_CHAT_OUTPUT_PER_1M); }
-    public function whisper_per_min()    { return $this->rate('vfc_price_whisper_per_min',    self::DEFAULT_WHISPER_PER_MIN); }
-    public function proxy_per_gb()       { return $this->rate('vfc_price_proxy_per_gb',       self::DEFAULT_PROXY_PER_GB); }
+    public function whisper_per_min() { return $this->rate('vfc_price_whisper_per_min', self::DEFAULT_WHISPER_PER_MIN); }
+    public function proxy_per_gb()    { return $this->rate('vfc_price_proxy_per_gb',    self::DEFAULT_PROXY_PER_GB); }
 
-    public function openai_cost($prompt_tokens, $completion_tokens) {
-        return ($prompt_tokens / 1_000_000) * $this->chat_input_per_1m()
-             + ($completion_tokens / 1_000_000) * $this->chat_output_per_1m();
+    /**
+     * Chat cost using the pricing of the currently selected model.
+     * Pass $model to override (e.g. when the run used a specific model).
+     */
+    public function openai_cost($prompt_tokens, $completion_tokens, $model = null) {
+        if ($model === null) {
+            $model = get_option('vfc_openai_model', 'gpt-4o-mini');
+        }
+        list($in_per_1m, $out_per_1m) = self::pricing_for($model);
+        return ($prompt_tokens / 1_000_000) * $in_per_1m
+             + ($completion_tokens / 1_000_000) * $out_per_1m;
     }
 
     public function whisper_cost($audio_seconds) {
@@ -51,8 +75,8 @@ class CostCalculator {
     /**
      * Build the full metrics array to persist for one run.
      */
-    public function build_metrics($platform, $prompt_tokens, $completion_tokens, $audio_seconds, $download_bytes, $is_youtube) {
-        $openai  = $this->openai_cost($prompt_tokens, $completion_tokens);
+    public function build_metrics($platform, $prompt_tokens, $completion_tokens, $audio_seconds, $download_bytes, $is_youtube, $model = null) {
+        $openai  = $this->openai_cost($prompt_tokens, $completion_tokens, $model);
         $whisper = $this->whisper_cost($audio_seconds);
         $proxy   = $this->proxy_cost($download_bytes, $is_youtube);
         return [

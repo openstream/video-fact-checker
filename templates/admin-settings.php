@@ -32,14 +32,13 @@
                         // Chat Completions models supporting temperature 0.3 (see class-fact-checker.php).
                         // Reasoning models (o-series / gpt-5) are intentionally omitted: they require
                         // code changes (max_completion_tokens, no custom temperature) before use.
-                        $models = [
-                            'gpt-4.1' => 'gpt-4.1 (High capability, ~$2/1M in · $8/1M out)',
-                            'gpt-4.1-mini' => 'gpt-4.1-mini (Balanced, ~$0.40/1M in · $1.60/1M out)',
-                            'gpt-4.1-nano' => 'gpt-4.1-nano (Fastest/cheapest, ~$0.10/1M in · $0.40/1M out)',
-                            'gpt-4o' => 'gpt-4o (High capability, ~$2.50/1M in · $10/1M out)',
-                            'gpt-4o-mini' => 'gpt-4o-mini (Low cost, ~$0.15/1M in · $0.60/1M out)',
-                        ];
-                        foreach ($models as $value => $label) {
+                        // Labels and prices come from CostCalculator::MODEL_PRICING so the dropdown
+                        // and the cost accounting always use the same rates.
+                        foreach (\VideoFactChecker\CostCalculator::MODEL_PRICING as $value => $rates) {
+                            list($in, $out) = $rates;
+                            $label = sprintf('%s ($%s/1M in · $%s/1M out)', $value,
+                                rtrim(rtrim(number_format($in, 2), '0'), '.'),
+                                rtrim(rtrim(number_format($out, 2), '0'), '.'));
                             printf(
                                 '<option value="%s" %s>%s</option>',
                                 esc_attr($value),
@@ -99,17 +98,16 @@
             <tr>
                 <td colspan="2">
                     <p class="description">
-                        Pricing rates used to estimate the cost of each fact check. Leave a field
+                        OpenAI chat pricing is taken automatically from the selected AI model above.
+                        The rates below are used to estimate the remaining costs. Leave a field
                         empty to use the built-in default. Proxy cost applies to YouTube only.
                     </p>
                 </td>
             </tr>
             <?php
             $cost_fields = [
-                'vfc_price_chat_input_per_1m'  => ['OpenAI chat — input ($ / 1M tokens)', '0.15'],
-                'vfc_price_chat_output_per_1m' => ['OpenAI chat — output ($ / 1M tokens)', '0.60'],
                 'vfc_price_whisper_per_min'    => ['Whisper transcription ($ / audio minute)', '0.006'],
-                'vfc_price_proxy_per_gb'       => ['Proxy traffic ($ / GB)', '3.00'],
+                'vfc_price_proxy_per_gb'       => ['Proxy traffic ($ / GB)', '3.75'],
                 'vfc_daily_cost_budget'        => ['Daily budget alert ($ / day, 0 = off)', ''],
             ];
             foreach ($cost_fields as $name => $meta):

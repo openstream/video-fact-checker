@@ -141,7 +141,8 @@ class Ajax {
                 $this->fact_checker->get_last_completion_tokens(),
                 $this->processor->get_last_audio_seconds(),
                 $this->processor->get_last_download_bytes(),
-                $this->processor->get_last_is_youtube()
+                $this->processor->get_last_is_youtube(),
+                $this->fact_checker->get_model()
             );
             $this->logger->log(sprintf(
                 "Run cost: openai=$%.4f whisper=$%.4f proxy=$%.4f total=$%.4f",
