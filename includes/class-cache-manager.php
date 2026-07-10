@@ -162,9 +162,8 @@ class CacheManager {
         $calc = new CostCalculator();
         $updated = 0;
         foreach ($rows as $row) {
-            // Derive platform bucket from the URL (youtube vs other).
-            $is_youtube = (bool) preg_match('#(?:youtube\.com|youtu\.be)#i', (string) $row->video_url);
-            $platform = $is_youtube ? 'youtube' : 'other';
+            // Detect the real platform from the URL (youtube, tiktok, instagram, …).
+            $platform = VideoProcessor::detect_platform($row->video_url);
 
             $metrics = $calc->estimate_metrics($platform, $row->transcription, $row->analysis);
 
@@ -180,6 +179,35 @@ class CacheManager {
             }
         }
         $this->logger->log("Backfilled estimated costs for {$updated} historical rows.");
+        return $updated;
+    }
+
+    /**
+     * One-off: re-detect the platform for every row from its URL, replacing the
+     * coarse youtube/other values with real platform names. Returns count updated.
+     */
+    public function redetect_platforms() {
+        $rows = $this->wpdb->get_results("SELECT id, video_url, platform FROM {$this->table_name}");
+        if (empty($rows)) {
+            return 0;
+        }
+        $updated = 0;
+        foreach ($rows as $row) {
+            $detected = VideoProcessor::detect_platform($row->video_url);
+            if ($detected !== $row->platform) {
+                $ok = $this->wpdb->update(
+                    $this->table_name,
+                    ['platform' => $detected],
+                    ['id' => $row->id],
+                    ['%s'],
+                    ['%d']
+                );
+                if ($ok !== false) {
+                    $updated++;
+                }
+            }
+        }
+        $this->logger->log("Re-detected platform for {$updated} rows.");
         return $updated;
     }
 

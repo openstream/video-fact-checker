@@ -484,6 +484,52 @@ class VideoProcessor {
         return json_last_error() === JSON_ERROR_NONE;
     }
 
+    /**
+     * Human-readable platform name derived from the video URL's host.
+     * Used for display/stats — distinct from the rate-limit bucket (youtube/other).
+     * Returns a lowercase slug like 'youtube', 'tiktok', 'instagram', 'twitter', etc.
+     * Falls back to the bare host, or 'other' when no host can be parsed.
+     */
+    public static function detect_platform($url) {
+        $host = '';
+        $parsed = @parse_url((string) $url);
+        if (is_array($parsed) && isset($parsed['host'])) {
+            $host = strtolower($parsed['host']);
+        }
+        if ($host === '') {
+            return 'other';
+        }
+        // host substring => platform slug
+        $map = [
+            'youtube.com'   => 'youtube',
+            'youtu.be'      => 'youtube',
+            'tiktok.com'    => 'tiktok',
+            'instagram.com' => 'instagram',
+            'twitter.com'   => 'twitter',
+            'x.com'         => 'twitter',
+            'twimg.com'     => 'twitter',
+            't.co'          => 'twitter',
+            'facebook.com'  => 'facebook',
+            'fb.watch'      => 'facebook',
+            'vimeo.com'     => 'vimeo',
+            'twitch.tv'     => 'twitch',
+            'dailymotion.com' => 'dailymotion',
+            'dai.ly'        => 'dailymotion',
+            'reddit.com'    => 'reddit',
+            'redd.it'       => 'reddit',
+            'linkedin.com'  => 'linkedin',
+            'snapchat.com'  => 'snapchat',
+            'bilibili.com'  => 'bilibili',
+        ];
+        foreach ($map as $needle => $slug) {
+            if (strpos($host, $needle) !== false) {
+                return $slug;
+            }
+        }
+        // Unknown host: strip a leading www. and return it as-is.
+        return preg_replace('/^www\./', '', $host);
+    }
+
     public function is_youtube_url($url) {
         $this->logger->log("=== Checking if URL is YouTube ===");
         $this->logger->log("URL to check: " . $url);

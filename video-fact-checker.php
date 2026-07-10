@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 3);
+define('VFC_DB_VERSION', 4);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -186,6 +186,13 @@ add_action('init', function() {
         if (!get_option('vfc_costs_backfilled')) {
             (new VideoFactChecker\CacheManager())->backfill_estimated_costs();
             update_option('vfc_costs_backfilled', 1);
+        }
+
+        // One-off: replace coarse youtube/other platform values with real platform
+        // names (tiktok, instagram, …) detected from each row's URL.
+        if (!get_option('vfc_platforms_redetected')) {
+            (new VideoFactChecker\CacheManager())->redetect_platforms();
+            update_option('vfc_platforms_redetected', 1);
         }
     }
 });

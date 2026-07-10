@@ -136,7 +136,7 @@ class Ajax {
             // Compute per-run cost metrics from the measured usage.
             $calc = new CostCalculator();
             $metrics = $calc->build_metrics(
-                $rate_bucket, // 'youtube' | 'other'
+                VideoProcessor::detect_platform($url), // e.g. youtube, tiktok, instagram
                 $this->fact_checker->get_last_prompt_tokens(),
                 $this->fact_checker->get_last_completion_tokens(),
                 $this->processor->get_last_audio_seconds(),
