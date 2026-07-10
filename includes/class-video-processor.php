@@ -164,9 +164,17 @@ class VideoProcessor {
                     }
                 }
             } else {
-                // Non-YouTube URL - don't use cookies and don't apply proxy
+                // Non-YouTube URL - don't use cookies and don't apply proxy.
+                //
+                // Format selection matters here: some TikTok videos advertise an audio
+                // codec on every format but actually hand out a silent HEVC (bytevc1)
+                // stream on download, which makes "-x" fail with
+                // "unable to obtain file audio codec with ffprobe". TikTok's combined
+                // "download" format (h264 + aac) does carry real audio, so prefer it,
+                // then fall back to bestaudio / best for all other platforms.
                 $command = sprintf(
-                    'yt-dlp -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                    'yt-dlp -f %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                    escapeshellarg('download/bestaudio/best'),
                     escapeshellarg($output_file),
                     escapeshellarg($url)
                 );
@@ -205,7 +213,11 @@ class VideoProcessor {
                     $hint = "\n\nHint: YouTube may require authentication. Ensure a valid Netscape-format cookies.txt is present in the plugin directory.";
                 }
                 
-                if (stripos($error_output, 'ffmpeg') !== false || stripos($error_output, 'ffprobe') !== false) {
+                if (stripos($error_output, 'unable to obtain file audio codec') !== false) {
+                    // ffprobe/ffmpeg are present but the downloaded stream has no usable
+                    // audio track (e.g. a silent HEVC variant some TikTok videos serve).
+                    $hint .= "\n\nHint: The downloaded video had no readable audio track (some source formats ship silent video). This video may not contain extractable audio.";
+                } elseif (stripos($error_output, 'ffmpeg') !== false || stripos($error_output, 'ffprobe') !== false) {
                     $hint .= "\n\nHint: ffmpeg/ffprobe might be missing. Install them and make sure they are on PATH.";
                 }
                 
