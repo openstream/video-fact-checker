@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.5.4
+ * Version: 0.5.5
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.5.4');
+define('VFC_VERSION', '0.5.5');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 4);
 
@@ -133,10 +133,22 @@ add_filter('bloginfo', function($output, $show) {
     if ($show === 'name' && !empty($GLOBALS['vfc_append_version_to_name'])) {
         // One-shot: only the footer's site-title occurrence.
         $GLOBALS['vfc_append_version_to_name'] = false;
-        $output .= sprintf(
-            ' <span class="vfc-footer-version">v%s (Beta)</span>',
-            esc_html(defined('VFC_VERSION') ? VFC_VERSION : '')
+        $model = get_option('vfc_openai_model', 'gpt-4o-mini');
+        $version = sprintf(
+            ' <span class="vfc-footer-version">v%s (Beta) · model: %s</span>',
+            esc_html(defined('VFC_VERSION') ? VFC_VERSION : ''),
+            esc_html($model)
         );
+        // Footer link to the Roadmap page, if it exists.
+        $roadmap = get_page_by_path('roadmap');
+        $roadmap_link = '';
+        if ($roadmap) {
+            $roadmap_link = sprintf(
+                '<span role="separator" aria-hidden="true"></span><a href="%s" class="vfc-footer-roadmap">Roadmap</a>',
+                esc_url(get_permalink($roadmap))
+            );
+        }
+        $output .= $version . $roadmap_link;
     }
     return $output;
 }, 10, 2);

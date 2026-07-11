@@ -1,9 +1,6 @@
 <div class="video-fact-checker-form">
     <form id="vfc-form">
         <div class="form-group">
-            <div class="form-header">
-                Supports over 1,800 video platforms—including top‑tier services such as YouTube, TikTok, Instagram, Vimeo, Twitch, and Dailymotion.
-            </div>
             <input type="url"
                    id="video-url"
                    name="video-url"
@@ -12,7 +9,7 @@
         </div>
 
         <div class="form-actions">
-            <button type="submit" id="analyze-btn">Analyze Video</button>
+            <button type="submit" id="analyze-btn">Fact check video</button>
         </div>
 
         <div id="progress-container" style="display: none;">
