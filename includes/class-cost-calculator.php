@@ -20,6 +20,9 @@ class CostCalculator {
      * read from here, so prices never drift between the two.
      */
     const MODEL_PRICING = [
+        // GPT-5 family (reasoning-style: default temperature only; see FactChecker).
+        'gpt-5.6-luna' => [1.00, 6.00],
+        // Classic chat models (custom temperature ok).
         'gpt-4.1'      => [2.00, 8.00],
         'gpt-4.1-mini' => [0.40, 1.60],
         'gpt-4.1-nano' => [0.10, 0.40],
@@ -35,6 +38,7 @@ class CostCalculator {
      * how current each model's knowledge is, in the admin dropdown and the footer.
      */
     const MODEL_CUTOFF = [
+        'gpt-5.6-luna' => 'Feb 2026',
         'gpt-4.1'      => 'Jun 2024',
         'gpt-4.1-mini' => 'Jun 2024',
         'gpt-4.1-nano' => 'Jun 2024',

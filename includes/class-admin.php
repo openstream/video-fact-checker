@@ -152,7 +152,11 @@ class Admin {
             return;
         }
 
-        echo '<table class="widefat fixed striped"><thead><tr>';
+        // Wrap in a horizontally scrollable container so the wide table doesn't
+        // get squished on narrow/mobile screens. Drop "fixed" so columns size to
+        // their content and can overflow horizontally instead.
+        echo '<div class="vfc-table-scroll" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
+        echo '<table class="widefat striped" style="min-width:900px;"><thead><tr>';
         echo '<th>Date</th>';
         echo '<th>Platform</th>';
         echo '<th>Video</th>';
@@ -236,6 +240,7 @@ class Admin {
             echo '</tr>';
         }
         echo '</tbody></table>';
+        echo '</div>'; // .vfc-table-scroll
         // Copy-to-clipboard and summary toggle handlers
         echo '<script>
         document.addEventListener("click", function(e) {

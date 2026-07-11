@@ -20,6 +20,14 @@ class FactChecker {
     public function get_last_completion_tokens() { return $this->last_completion_tokens; }
     public function get_model() { return $this->model; }
     
+    /**
+     * True for models that only accept the default temperature (1) — the GPT-5 /
+     * reasoning family. These reject a custom `temperature` like 0.3.
+     */
+    private function model_uses_default_temperature($model) {
+        return (bool) preg_match('/^(gpt-5|o[0-9])/i', (string) $model);
+    }
+
     public function check_facts($transcription) {
         $this->logger->log("Starting fact check for transcription");
         // Reset per-run usage.
@@ -30,25 +38,36 @@ class FactChecker {
                   "Highlight any claims that are verifiable and indicate their accuracy. " .
                   "Text to analyze: " . $transcription;
         
+        $payload = [
+            'model' => $this->model,
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. You answer in the language of the transcript'
+                ],
+                [
+                    'role' => 'user',
+                    'content' => $prompt
+                ]
+            ],
+        ];
+
+        // GPT-5 / reasoning models only accept the default temperature (1) and use
+        // a different token-limit parameter. Classic gpt-4.x / gpt-4o models take a
+        // custom temperature. Send the right shape per model.
+        if ($this->model_uses_default_temperature($this->model)) {
+            // Omit temperature entirely (defaults to 1 — the only value allowed).
+            $this->logger->log("Model {$this->model}: using default temperature (reasoning-style model)");
+        } else {
+            $payload['temperature'] = 0.3;
+        }
+
         $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
             'headers' => [
                 'Authorization' => 'Bearer ' . $this->api_key,
                 'Content-Type' => 'application/json',
             ],
-            'body' => json_encode([
-                'model' => $this->model,
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. You answer in the language of the transcript'
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => $prompt
-                    ]
-                ],
-                'temperature' => 0.3
-            ]),
+            'body' => json_encode($payload),
             'timeout' => 60
         ]);
         
