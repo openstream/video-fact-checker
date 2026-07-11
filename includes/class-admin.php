@@ -156,9 +156,10 @@ class Admin {
         // get squished on narrow/mobile screens. Drop "fixed" so columns size to
         // their content and can overflow horizontally instead.
         echo '<div class="vfc-table-scroll" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">';
-        echo '<table class="widefat striped" style="min-width:900px;"><thead><tr>';
+        echo '<table class="widefat striped" style="min-width:1000px;"><thead><tr>';
         echo '<th>Date</th>';
         echo '<th>Platform</th>';
+        echo '<th>Title / Summary</th>';
         echo '<th>Video</th>';
         echo '<th>Short URL</th>';
         echo '<th>Transcript Size</th>';
@@ -173,17 +174,20 @@ class Admin {
             $short_slug = esc_attr($row->short_url);
             $public_url = home_url('/share/' . $short_slug);
 
-            // Platform: prefer the stored bucket, else fall back to the URL host.
-            if (!empty($row->platform)) {
-                $platform = esc_html($row->platform);
-            } else {
-                $host = '';
-                $parsed = @parse_url($video_url_raw);
-                if (is_array($parsed) && isset($parsed['host'])) {
-                    $host = $parsed['host'];
-                }
-                $platform = esc_html($host ?: '—');
-            }
+            // Platform: prefer the stored value, else detect from the URL.
+            $platform_slug = !empty($row->platform) ? $row->platform : VideoProcessor::detect_platform($video_url_raw);
+            $platform_label = PlatformIcon::label($platform_slug);
+            $platform_cell = '<span style="display:inline-flex;align-items:center;gap:6px;">'
+                . PlatformIcon::svg($platform_slug, 20)
+                . '<span>' . esc_html($platform_label) . '</span></span>';
+
+            // One-glance descriptor: video title, or a short summary of the analysis.
+            $descriptor = PlatformIcon::describe(
+                isset($row->video_title) ? $row->video_title : '',
+                isset($row->analysis) ? $row->analysis : '',
+                120
+            );
+            $descriptor_cell = $descriptor !== '' ? esc_html($descriptor) : '<span style="color:#999;">—</span>';
 
             // Per-run cost (may be null for pre-cost-tracking rows).
             $total_cost = isset($row->total_cost) && $row->total_cost !== null ? (float) $row->total_cost : null;
@@ -223,7 +227,8 @@ class Admin {
 
             echo '<tr>';
             echo '<td>' . $created . '</td>';
-            echo '<td>' . $platform . '</td>';
+            echo '<td>' . $platform_cell . '</td>';
+            echo '<td>' . $descriptor_cell . '</td>';
             echo '<td>'
                 . '<button class="button button-small" onclick="window.open(\'' . $video_url . '\', \'_blank\')">Open</button>'
                 . ' <button class="button button-small vfc-copy" data-copy="' . esc_attr($video_url_raw) . '">Copy</button>'
@@ -294,27 +299,32 @@ class Admin {
             $short_url = esc_attr($row->short_url);
             $created = esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($row->created_at)));
 
-            // Thumbnail via oEmbed preview where possible (YouTube quick heuristic)
-            $thumb = '';
-            if (preg_match('#youtu(?:\.be|be\.com)/(?:shorts/|watch\?v=|embed/|v/)?([\w-]+)#i', $row->video_url, $m)) {
-                $thumb = sprintf('https://img.youtube.com/vi/%s/hqdefault.jpg', esc_attr($m[1]));
-            }
+            // Unified platform icon (falls back to URL host if platform is unknown).
+            $platform = !empty($row->platform) ? $row->platform : VideoProcessor::detect_platform($row->video_url);
+            $icon = PlatformIcon::svg($platform, 28);
+            $platform_label = PlatformIcon::label($platform);
 
-            $thumb_html = $thumb ? '<img src="' . esc_url($thumb) . '" alt="" style="width:72px;height:auto;border-radius:4px;margin-right:8px;object-fit:cover;" />' : '';
-            $frontend_link = admin_url('admin-ajax.php');
-            // Build public share URL
+            // One-glance descriptor: video title, or a short summary of the analysis.
+            $descriptor = PlatformIcon::describe(
+                isset($row->video_title) ? $row->video_title : '',
+                isset($row->analysis) ? $row->analysis : ''
+            );
+
             $public_url = home_url('/share/' . $short_url);
 
-            echo '<div style="margin:0 0 10px;">';
-            echo '<div style="display:flex;align-items:center;">';
-            echo $thumb_html;
-            // min-width:0 lets the flex child shrink so long URLs wrap instead of
-            // overflowing the widget box.
+            echo '<div style="display:flex;align-items:flex-start;gap:10px;margin:0 0 12px;">';
+            echo '<span title="' . esc_attr($platform_label) . '" style="flex:none;margin-top:2px;">' . $icon . '</span>';
             echo '<div style="min-width:0;flex:1;">';
-            echo '<div style="font-weight:600;">' . $created . '</div>';
-            echo '<div style="overflow-wrap:anywhere;word-break:break-word;"><a href="' . esc_url($video_url) . '" target="_blank" rel="noopener">' . esc_html($video_url) . '</a></div>';
-            echo '<div><a href="' . esc_url($public_url) . '" target="_blank" rel="noopener">Open fact check</a></div>';
-            echo '</div>';
+            if ($descriptor !== '') {
+                echo '<div style="font-weight:600;line-height:1.3;">' . esc_html($descriptor) . '</div>';
+            } else {
+                echo '<div style="font-weight:600;overflow-wrap:anywhere;">' . esc_html($row->video_url) . '</div>';
+            }
+            echo '<div style="color:#666;font-size:12px;margin:2px 0;">' . $created . ' · ' . esc_html($platform_label) . '</div>';
+            echo '<div style="font-size:12px;">'
+                . '<a href="' . esc_url($public_url) . '" target="_blank" rel="noopener">Open fact check</a>'
+                . ' · <a href="' . esc_url($video_url) . '" target="_blank" rel="noopener">Source</a>'
+                . '</div>';
             echo '</div>';
             echo '</div>';
         }

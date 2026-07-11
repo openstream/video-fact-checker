@@ -168,6 +168,12 @@ class Ajax {
                 $metrics['openai_cost'], $metrics['whisper_cost'], $metrics['proxy_cost'], $metrics['total_cost']
             ));
 
+            // Store the captured video title (if any) alongside the metrics.
+            $title = $this->processor->get_last_title();
+            if ($title !== '') {
+                $metrics['video_title'] = $title;
+            }
+
             // Cache result (unless nocache is requested)
             $short_url = null;
             if (!$nocache) {

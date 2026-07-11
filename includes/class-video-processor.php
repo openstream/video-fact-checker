@@ -10,6 +10,7 @@ class VideoProcessor {
     private $last_download_bytes = 0;
     private $last_audio_seconds = 0.0;
     private $last_is_youtube = false;
+    private $last_title = '';
 
     public function __construct() {
         $this->logger = new Logger();
@@ -25,6 +26,7 @@ class VideoProcessor {
     public function get_last_download_bytes() { return $this->last_download_bytes; }
     public function get_last_audio_seconds() { return $this->last_audio_seconds; }
     public function get_last_is_youtube() { return $this->last_is_youtube; }
+    public function get_last_title() { return $this->last_title; }
 
     /**
      * Read the audio duration (seconds) of a media file via ffprobe.
@@ -72,6 +74,7 @@ class VideoProcessor {
         $this->last_download_bytes = 0;
         $this->last_audio_seconds = 0.0;
         $this->last_is_youtube = $this->is_youtube_url($url);
+        $this->last_title = '';
 
         try {
             // Quick dependency check for clearer error messages
@@ -170,9 +173,15 @@ class VideoProcessor {
             }
             
             // Create unique filename
-            $filename = uniqid('audio_') . '.%(ext)s';
+            $uniq = uniqid('audio_');
+            $filename = $uniq . '.%(ext)s';
             $output_file = $output_dir . '/' . $filename;
             $this->logger->log("Output file template: " . $output_file);
+
+            // Sidecar file to capture the video title in the same yt-dlp run
+            // (via --print-to-file), so we get it without an extra request.
+            $title_file = $output_dir . '/' . $uniq . '.title';
+            $title_opt = '--print-to-file ' . escapeshellarg('%(title)s') . ' ' . escapeshellarg($title_file);
             
             // Verify YouTube URL detection
             $is_youtube = $this->is_youtube_url($url);
@@ -193,9 +202,10 @@ class VideoProcessor {
                     // almost always offers a separate audio stream; the fallbacks
                     // only kick in if it genuinely doesn't.
                     $command = sprintf(
-                        'yt-dlp --proxy %s -f %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                        'yt-dlp --proxy %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
                         escapeshellarg($proxy),
                         escapeshellarg('bestaudio/best'),
+                        $title_opt,
                         escapeshellarg($output_file),
                         escapeshellarg($url)
                     );
@@ -217,9 +227,10 @@ class VideoProcessor {
                         // Audio-only selection (see the proxy branch above) — keeps
                         // downloads small even on the cookies path.
                         $command = sprintf(
-                            'yt-dlp --cookies %s -f %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                            'yt-dlp --cookies %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
                             escapeshellarg($cookies_file),
                             escapeshellarg('bestaudio/best'),
+                            $title_opt,
                             escapeshellarg($output_file),
                             escapeshellarg($url)
                         );
@@ -237,8 +248,9 @@ class VideoProcessor {
                 // "download" format (h264 + aac) does carry real audio, so prefer it,
                 // then fall back to bestaudio / best for all other platforms.
                 $command = sprintf(
-                    'yt-dlp -f %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                    'yt-dlp -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
                     escapeshellarg('download/bestaudio/best'),
+                    $title_opt,
                     escapeshellarg($output_file),
                     escapeshellarg($url)
                 );
@@ -275,6 +287,17 @@ class VideoProcessor {
             }
             
             $this->logger->log("Found MP3 file: " . $mp3_file);
+
+            // Read the captured video title (sidecar file), then remove it.
+            if (isset($title_file) && file_exists($title_file)) {
+                $t = trim((string) @file_get_contents($title_file));
+                @unlink($title_file);
+                // yt-dlp prints "NA" when a field is unavailable; treat as empty.
+                if ($t !== '' && strtoupper($t) !== 'NA') {
+                    $this->last_title = mb_substr($t, 0, 500);
+                    $this->logger->log("Captured title: " . $this->last_title);
+                }
+            }
 
             // Capture metrics for cost accounting.
             // Audio duration drives the Whisper cost.
