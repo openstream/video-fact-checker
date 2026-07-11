@@ -538,6 +538,49 @@ class VideoProcessor {
         return preg_replace('/^www\./', '', $host);
     }
 
+    /**
+     * Strip tracking/share query parameters so the same video always yields the
+     * same cache key. Platform-aware: YouTube keeps the essential `v` (and `t`)
+     * params; for every other platform the path already identifies the video, so
+     * all query parameters and the fragment are dropped. Also trims a trailing
+     * slash-less fragment and normalizes the result.
+     */
+    public static function normalize_url($url) {
+        $url = trim((string) $url);
+        if ($url === '') {
+            return $url;
+        }
+        $parts = @parse_url($url);
+        if (!is_array($parts) || empty($parts['host'])) {
+            return $url; // unparseable — leave as-is
+        }
+
+        $scheme = isset($parts['scheme']) ? $parts['scheme'] : 'https';
+        $host   = $parts['host'];
+        $port   = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $path   = isset($parts['path']) ? $parts['path'] : '';
+
+        // Decide which query params (if any) to keep.
+        $keep = [];
+        $platform = self::detect_platform($url);
+        if ($platform === 'youtube') {
+            // youtube.com/watch?v=... needs v; keep t (timestamp) too. youtu.be
+            // and /shorts/ carry the id in the path and need nothing.
+            $keep = ['v', 't'];
+        }
+
+        $query = '';
+        if (!empty($parts['query']) && $keep) {
+            parse_str($parts['query'], $params);
+            $kept = array_intersect_key($params, array_flip($keep));
+            if ($kept) {
+                $query = '?' . http_build_query($kept);
+            }
+        }
+
+        return $scheme . '://' . $host . $port . $path . $query;
+    }
+
     public function is_youtube_url($url) {
         $this->logger->log("=== Checking if URL is YouTube ===");
         $this->logger->log("URL to check: " . $url);

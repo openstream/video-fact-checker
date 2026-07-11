@@ -83,7 +83,15 @@ class Ajax {
                     $this->logger->log("Cache bypass requested for URL: " . $url);
                 }
             }
-            
+
+            // Strip tracking/share query params so the cache key is stable across
+            // the many URL variants of the same video (utm_*, share_*, _t, igsh, …).
+            $normalized_url = VideoProcessor::normalize_url($url);
+            if ($normalized_url !== $url) {
+                $this->logger->log("Normalized URL: " . $url . " -> " . $normalized_url);
+                $url = $normalized_url;
+            }
+
             // Correlate this run
             $request_id = substr(md5($url . microtime(true) . wp_rand()), 0, 8);
             $this->logger->assignRequestId($request_id);

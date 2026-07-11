@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.6.2
+ * Version: 0.6.3
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,9 +31,9 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.6.2');
+define('VFC_VERSION', '0.6.3');
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 4);
+define('VFC_DB_VERSION', 5);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -238,6 +238,13 @@ add_action('init', function() {
         if (!get_option('vfc_platforms_redetected')) {
             (new VideoFactChecker\CacheManager())->redetect_platforms();
             update_option('vfc_platforms_redetected', 1);
+        }
+
+        // One-off: strip tracking params from stored URLs and recompute hashes so
+        // future lookups hit the cache regardless of share/tracking query strings.
+        if (!get_option('vfc_urls_normalized')) {
+            (new VideoFactChecker\CacheManager())->normalize_stored_urls();
+            update_option('vfc_urls_normalized', 1);
         }
     }
 });

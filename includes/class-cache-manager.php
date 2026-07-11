@@ -184,6 +184,57 @@ class CacheManager {
     }
 
     /**
+     * One-off: normalize stored video_url values (strip tracking params) and
+     * recompute video_hash so future lookups match the cleaned URLs. If two rows
+     * normalize to the same URL, keep the most recent and delete the older
+     * duplicate. Returns [updated, deleted].
+     */
+    public function normalize_stored_urls() {
+        $rows = $this->wpdb->get_results(
+            "SELECT id, video_url, created_at FROM {$this->table_name} ORDER BY created_at DESC, id DESC"
+        );
+        if (empty($rows)) {
+            return [0, 0];
+        }
+
+        // Pass 1: group all rows by their target (normalized) hash. Rows are ordered
+        // newest-first, so the first row in each group is the one we keep.
+        $groups = []; // hash => ['keeper' => row, 'normalized' => url, 'dupes' => [ids]]
+        foreach ($rows as $row) {
+            $normalized = VideoProcessor::normalize_url($row->video_url);
+            $hash = md5($normalized);
+            if (!isset($groups[$hash])) {
+                $groups[$hash] = ['keeper' => $row, 'normalized' => $normalized, 'dupes' => []];
+            } else {
+                $groups[$hash]['dupes'][] = $row->id; // older row → duplicate
+            }
+        }
+
+        $updated = 0;
+        $deleted = 0;
+
+        // Pass 2: delete duplicates first (frees the hash), then update keepers.
+        foreach ($groups as $hash => $g) {
+            foreach ($g['dupes'] as $dupe_id) {
+                $this->wpdb->delete($this->table_name, ['id' => $dupe_id], ['%d']);
+                $deleted++;
+            }
+            if ($g['normalized'] !== $g['keeper']->video_url) {
+                $this->wpdb->update(
+                    $this->table_name,
+                    ['video_url' => $g['normalized'], 'video_hash' => $hash],
+                    ['id' => $g['keeper']->id],
+                    ['%s', '%s'],
+                    ['%d']
+                );
+                $updated++;
+            }
+        }
+        $this->logger->log("Normalized stored URLs: updated={$updated} deleted_dupes={$deleted}");
+        return [$updated, $deleted];
+    }
+
+    /**
      * One-off: re-detect the platform for every row from its URL, replacing the
      * coarse youtube/other values with real platform names. Returns count updated.
      */
