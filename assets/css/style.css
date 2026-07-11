@@ -194,10 +194,7 @@
 .content p {
     margin: 10px 0;
 }
-/* Version footer */
-.vfc-version {
-    margin-top: 18px;
-    font-size: 12px;
+/* Version note appended to the site footer (via twentysixteen_credits hook) */
+.vfc-footer-version {
     color: #999;
-    text-align: right;
 }
