@@ -30,8 +30,25 @@ class CostCalculator {
     /** Fallback pricing when the configured model is unknown (use gpt-4o-mini). */
     const FALLBACK_PRICING = [0.15, 0.60];
 
+    /**
+     * Training-data knowledge cutoff per model (human-readable). Used to display
+     * how current each model's knowledge is, in the admin dropdown and the footer.
+     */
+    const MODEL_CUTOFF = [
+        'gpt-4.1'      => 'Jun 2024',
+        'gpt-4.1-mini' => 'Jun 2024',
+        'gpt-4.1-nano' => 'Jun 2024',
+        'gpt-4o'       => 'Oct 2023',
+        'gpt-4o-mini'  => 'Oct 2023',
+    ];
+
     public static function pricing_for($model) {
         return self::MODEL_PRICING[$model] ?? self::FALLBACK_PRICING;
+    }
+
+    /** Returns the knowledge-cutoff label for a model, or '' if unknown. */
+    public static function cutoff_for($model) {
+        return self::MODEL_CUTOFF[$model] ?? '';
     }
 
     private function rate($option, $default) {

@@ -98,11 +98,22 @@ class Ajax {
                 $cached_result = $cache_manager->get_cached_result($url);
                 if ($cached_result) {
                     $this->logger->log("Returning cached result with short URL: " . $cached_result['short_url']);
+                    $cached_at = '';
+                    if (!empty($cached_result['created_at'])) {
+                        $ts = strtotime($cached_result['created_at']);
+                        if ($ts) {
+                            $cached_at = date_i18n(
+                                get_option('date_format') . ' ' . get_option('time_format'),
+                                $ts
+                            );
+                        }
+                    }
                     wp_send_json_success([
                         'transcription' => $cached_result['transcription'],
                         'analysis' => $cached_result['analysis'],
                         'short_url' => $cached_result['short_url'],
-                        'cached' => true
+                        'cached' => true,
+                        'cached_at' => $cached_at
                     ]);
                     return;
                 }

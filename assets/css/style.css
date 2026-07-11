@@ -198,3 +198,15 @@
 .vfc-footer-version {
     color: #999;
 }
+
+/* Cache notice on cached results */
+.vfc-cache-notice {
+    background: #eef6fb;
+    border: 1px solid #cfe4f2;
+    border-left: 4px solid #2b7bb9;
+    color: #21506e;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin: 0 0 14px;
+    font-size: 13px;
+}

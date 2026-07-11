@@ -36,7 +36,9 @@
                         // and the cost accounting always use the same rates.
                         foreach (\VideoFactChecker\CostCalculator::MODEL_PRICING as $value => $rates) {
                             list($in, $out) = $rates;
-                            $label = sprintf('%s ($%s/1M in · $%s/1M out)', $value,
+                            $cutoff = \VideoFactChecker\CostCalculator::cutoff_for($value);
+                            $label = sprintf('%s%s ($%s/1M in · $%s/1M out)', $value,
+                                $cutoff ? ' — cutoff ' . $cutoff : '',
                                 rtrim(rtrim(number_format($in, 2), '0'), '.'),
                                 rtrim(rtrim(number_format($out, 2), '0'), '.'));
                             printf(

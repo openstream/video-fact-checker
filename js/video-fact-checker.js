@@ -131,6 +131,16 @@ jQuery(document).ready(function($) {
             errorContainer.hide().empty();
             // Remove a share section left over from a previous run before re-adding.
             resultsContainer.find('.share-section').remove();
+            // Remove any cache notice from a previous run.
+            resultsContainer.find('.vfc-cache-notice').remove();
+
+            // If this result came from the cache, show when it was originally checked.
+            if (data.cached) {
+                const when = data.cached_at ? ` on ${data.cached_at}` : '';
+                const notice = $('<div class="vfc-cache-notice"></div>');
+                notice.text(`Cached result — originally fact-checked${when}.`);
+                resultsContainer.prepend(notice);
+            }
 
             transcriptionContent.text(data.transcription);
             analysisContent.html(data.analysis);

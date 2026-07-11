@@ -27,7 +27,8 @@ class CacheManager {
             return [
                 'transcription' => $result->transcription,
                 'analysis' => $result->analysis,
-                'short_url' => $result->short_url
+                'short_url' => $result->short_url,
+                'created_at' => $result->created_at,
             ];
         }
 
