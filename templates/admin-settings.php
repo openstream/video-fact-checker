@@ -208,4 +208,23 @@
 
         <?php submit_button(); ?>
     </form>
+
+    <h2 style="margin-top: 2em;">System information</h2>
+    <p class="description">Versions of the external tools the plugin relies on. If yt-dlp is flagged as old, updating it usually fixes YouTube download problems.</p>
+    <table class="widefat striped" style="max-width: 640px;">
+        <thead><tr><th>Component</th><th>Version</th><th>Status</th></tr></thead>
+        <tbody>
+        <?php foreach (\VideoFactChecker\SystemInfo::report() as $row):
+            list($label, $version, $status) = $row;
+            $badge = ['ok' => ['OK', '#2b7b2b'], 'warn' => ['Check', '#b58900'], 'missing' => ['Missing', '#c0392b']];
+            list($badge_text, $badge_color) = isset($badge[$status]) ? $badge[$status] : ['—', '#666'];
+        ?>
+            <tr>
+                <td><strong><?php echo esc_html($label); ?></strong></td>
+                <td><code><?php echo esc_html($version); ?></code></td>
+                <td><span style="color:<?php echo esc_attr($badge_color); ?>;font-weight:600;"><?php echo esc_html($badge_text); ?></span></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
 </div>
