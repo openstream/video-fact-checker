@@ -91,19 +91,34 @@ Nothing here is committed to a delivery date yet; it captures direction and deci
 
 ## Phase 3b — Cost reduction
 
-- [ ] **Use YouTube's own transcript instead of Whisper.** Many YouTube videos ship
-      subtitles/captions (human or auto-generated) that yt-dlp can fetch via
-      `--write-subs` / `--write-auto-subs`. When present, skip the Whisper transcription
-      step entirely and fact-check the caption text directly — cheaper and faster.
-      Caveats to design around:
-      - Not every video has captions → keep Whisper as the fallback.
-      - Auto-generated captions are lower quality (no punctuation/sentence structure,
-        ASR errors) → may hurt fact-check quality; consider only using *manual* subs, or
-        post-cleaning auto-subs, or a quality heuristic to decide.
-      - This saves **Whisper cost**, not the proxy: fetching captions still goes through
-        YouTube and needs the proxy (datacenter-IP block). So it complements, not
-        replaces, the proxy.
-      - Prefer the video's original language track; handle multi-language selection.
+### Transcript sourcing — investigated 2026-07-11
+
+Goal: reduce or replace the two recurring costs — the Decodo proxy ($3.75/GB, YouTube
+only) and OpenAI Whisper. Two approaches were evaluated:
+
+- [ ] **(A) yt-dlp captions instead of Whisper.** yt-dlp *finds* YouTube auto-captions
+      (`--write-auto-subs`), but **fetching them via the proxy is unreliable**: tested on
+      prod, the caption download hit `HTTP 429 Too Many Requests`, client-blocks
+      ("content is not available on this app"), and PO-token requirements. It would fall
+      back to Whisper often, and it still needs the proxy. **Verdict: not worth building
+      as-is.** A PO-token setup might stabilize it but is itself fragile/maintenance-heavy.
+
+- [ ] **(B) Third-party transcript API (recommended to evaluate).** Managed services like
+      **Supadata** return transcripts for YouTube, TikTok, Instagram, X, Facebook via a
+      simple REST API — **no proxy, no yt-dlp, no own Whisper**. It serves native captions
+      where available and AI-generates otherwise (built-in fallback = exactly our
+      "captions first, Whisper fallback" logic, but solved).
+      - Pricing (Supadata Pro, $17 / 3,000 credits ≈ **$0.0057/credit**):
+        native transcript = 1 credit (~$0.006); AI-generated = 2 credits/min.
+      - Potential wins: **drop the Decodo proxy** (biggest cost + the 407/429 pain),
+        drop most Whisper calls, remove yt-dlp fragility (silent-HEVC, TikTok format
+        churn, 429s).
+      - Trade-offs: another third-party dependency; at very high volume our own Whisper
+        may beat 2 credits/min; verify native-caption hit-rate and quality on *our* real
+        videos (esp. TikTok/Instagram) before switching.
+      - Next step (deferred): test the Supadata free tier (100 credits) against our test
+        videos, compare cost + quality, then decide whether to make it the primary source
+        with proxy+Whisper as fallback.
 
 ## Phase 4 — Product polish
 
