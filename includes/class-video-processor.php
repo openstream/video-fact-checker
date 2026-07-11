@@ -188,9 +188,14 @@ class VideoProcessor {
             if ($is_youtube) {
                 if ($proxy) {
                     $this->logger->log("Using proxy for YouTube download");
+                    // Explicitly select an audio-only stream so we never pull the
+                    // (much larger) video track through the metered proxy. YouTube
+                    // almost always offers a separate audio stream; the fallbacks
+                    // only kick in if it genuinely doesn't.
                     $command = sprintf(
-                        'yt-dlp --proxy %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                        'yt-dlp --proxy %s -f %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
                         escapeshellarg($proxy),
+                        escapeshellarg('bestaudio/best'),
                         escapeshellarg($output_file),
                         escapeshellarg($url)
                     );
@@ -209,9 +214,12 @@ class VideoProcessor {
                             file_put_contents($cookies_file, $content);
                         }
                         
+                        // Audio-only selection (see the proxy branch above) — keeps
+                        // downloads small even on the cookies path.
                         $command = sprintf(
-                            'yt-dlp --cookies %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
+                            'yt-dlp --cookies %s -f %s -x --audio-format mp3 --audio-quality 0 -o %s %s 2>&1',
                             escapeshellarg($cookies_file),
+                            escapeshellarg('bestaudio/best'),
                             escapeshellarg($output_file),
                             escapeshellarg($url)
                         );

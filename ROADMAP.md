@@ -1,7 +1,8 @@
 # Roadmap — Video Fact Checker
 
-Working plan for turning the plugin into a freemium product with paid tiers.
-Nothing here is committed to a delivery date yet; it captures direction and decisions.
+**Current focus: grow usage.** Get more people using the tool before investing in
+monetization. The freemium/payment work is parked (kept below for later, not deleted).
+Nothing here is committed to a delivery date; it captures direction and decisions.
 
 ## Context & constraints
 
@@ -13,7 +14,10 @@ Nothing here is committed to a delivery date yet; it captures direction and deci
   the OpenAI API usage.
 - Therefore limits and pricing treat **YouTube** and **other platforms** as separate buckets.
 
-## Tier model
+## Tier model (parked — for the future paid plan)
+
+> Monetization is deferred until usage grows. The rate-limiting groundwork is already
+> built; the paid tiers below are the intended end state, not a current priority.
 
 | Bucket           | Free (per user / day) | Paid (per user / day) |
 |------------------|-----------------------|-----------------------|
@@ -52,31 +56,7 @@ Nothing here is committed to a delivery date yet; it captures direction and deci
 - Assets enqueued with `filemtime()` version so browsers pick up CSS/JS changes
   immediately.
 
-**Not yet built:** everything below (monetization/accounts/payments).
-
-## Phase 1 — Foundations for monetization
-
-- [ ] **User accounts / identity.** Decide whether paid users must register (WP users) or
-      whether we key entitlements off email + payment token. Registration gives a reliable
-      per-user key (better than IP) and enables the dashboard.
-- [ ] **Entitlement store.** A place to record "user X has paid plan P until date D (sub) or
-      forever (one-time)". Likely a custom table or user meta.
-- [ ] **Hook entitlements into limits.** Implement the `vfc_rate_limit` filter so a paid user
-      returns 5 (youtube) / 10 (other). Free users keep the defaults.
-- [ ] **Usage visibility.** Show remaining quota ("0 of 1 YouTube checks left today") in the
-      frontend form so limits are transparent before a run starts.
-
-## Phase 2 — Payments
-
-- [ ] **Choose payment model** (see decision section). Recommendation: start with a
-      **monthly subscription** for predictable revenue against the recurring proxy cost,
-      and optionally add a **one-time day-pass / credit pack** later.
-- [ ] **Payment provider.** Stripe is the default (Checkout + Billing/subscriptions,
-      webhooks for entitlement updates). Evaluate WooCommerce only if we already want a
-      store/invoicing stack — otherwise it's overhead.
-- [ ] **Webhook → entitlement.** On successful payment / subscription event, update the
-      entitlement store. On cancellation/expiry, revert the user to the free tier.
-- [ ] **Billing edge cases.** Failed renewals, refunds, chargebacks, proration.
+**Not yet built:** everything below (technical/reliability now; monetization parked).
 
 ## Phase 3 — Abuse & cost control
 
@@ -135,6 +115,28 @@ only) and OpenAI Whisper. Two approaches were evaluated:
       - Until then, the public "How it works" page states plainly that there is no live web
         search.
 
+## Phase 3d — Reliability & upkeep
+
+The tool depends on `yt-dlp`, which breaks whenever YouTube changes something. On
+2026-07-11 prod YouTube was fully broken because yt-dlp was ~1 year old (2025.07.21)
+and had no JS runtime; updating yt-dlp + installing `deno` fixed it. Lessons captured:
+
+- [x] **yt-dlp needs a JS runtime for YouTube.** Newer yt-dlp requires `deno` (or node)
+      to see YouTube's separate audio streams; without it, it falls back to downloading the
+      full video. `deno` is installed at `/opt/deno/bin/deno` (symlinked to
+      `/usr/local/bin/deno`, readable by www-data).
+- [ ] **yt-dlp auto-update.** Weekly cron on the droplet (`pip install -U yt-dlp`) since
+      YouTube changes often. The health check (below) is the safety net if an update breaks
+      something.
+- [ ] **Health check / smoke test.** Daily cron runs one real YouTube + one non-YouTube
+      fact-check (nocache) and emails the admin if either fails — so breakage is caught
+      immediately, not by users.
+- [ ] **Show dependency versions in admin** (yt-dlp / ffmpeg / PHP), warn when yt-dlp is
+      far out of date.
+- [ ] **OS updates.** Keep the Ubuntu droplet patched on a regular cadence (security);
+      separate concern from the frequent yt-dlp updates. `deno`/`node` were installed
+      manually — re-provisioning the server must reinstall them.
+
 ## Phase 4 — Product polish
 
 - [ ] Per-user history / dashboard of past fact-checks.
@@ -144,7 +146,38 @@ only) and OpenAI Whisper. Two approaches were evaluated:
       Transcriptions admin page, plus a daily-budget email alert. Still TODO: runs per
       platform, cache-hit rate.
 
-## Open decisions
+---
+
+# Parked: monetization (revisit once usage has grown)
+
+> Deferred on purpose. The rate-limiting groundwork already exists; these phases are the
+> intended paid end state, to pick up once there's enough usage to justify it.
+
+## Phase P1 — Foundations for monetization
+
+- [ ] **User accounts / identity.** Decide whether paid users must register (WP users) or
+      whether we key entitlements off email + payment token. Registration gives a reliable
+      per-user key (better than IP) and enables the dashboard.
+- [ ] **Entitlement store.** A place to record "user X has paid plan P until date D (sub) or
+      forever (one-time)". Likely a custom table or user meta.
+- [ ] **Hook entitlements into limits.** Implement the `vfc_rate_limit` filter so a paid user
+      returns 5 (youtube) / 10 (other). Free users keep the defaults.
+- [ ] **Usage visibility.** Show remaining quota ("0 of 1 YouTube checks left today") in the
+      frontend form so limits are transparent before a run starts.
+
+## Phase P2 — Payments
+
+- [ ] **Choose payment model** (see decision section). Recommendation: start with a
+      **monthly subscription** for predictable revenue against the recurring proxy cost,
+      and optionally add a **one-time day-pass / credit pack** later.
+- [ ] **Payment provider.** Stripe is the default (Checkout + Billing/subscriptions,
+      webhooks for entitlement updates). Evaluate WooCommerce only if we already want a
+      store/invoicing stack — otherwise it's overhead.
+- [ ] **Webhook → entitlement.** On successful payment / subscription event, update the
+      entitlement store. On cancellation/expiry, revert the user to the free tier.
+- [ ] **Billing edge cases.** Failed renewals, refunds, chargebacks, proration.
+
+## Open decisions (monetization)
 
 1. **Subscription vs. one-time.**
    - *Subscription* matches our recurring proxy cost and is easier to reason about for a
