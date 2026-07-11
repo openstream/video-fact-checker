@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.5.3
+ * Version: 0.5.4
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.5.3');
+define('VFC_VERSION', '0.5.4');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 4);
 
@@ -120,27 +120,13 @@ function vfc_enqueue_scripts() {
 }
 add_action('wp_enqueue_scripts', 'vfc_enqueue_scripts');
 
-/**
- * Show the plugin version in the site footer, but only on pages that actually
- * contain the fact-checker shortcode (so it doesn't appear site-wide).
- * Uses the Twenty Sixteen `twentysixteen_credits` hook — no theme edit needed.
- */
-function vfc_current_page_has_shortcode() {
-    if (!is_singular()) {
-        return false;
-    }
-    $post = get_post();
-    return $post && has_shortcode((string) $post->post_content, 'video_fact_checker');
-}
-
-// Show the version right after the site title in the footer, on shortcode pages.
+// Show the plugin version right after the site title in the footer, site-wide.
 // The Twenty Sixteen footer prints the site name inside .site-info right after
 // firing `twentysixteen_credits`. We flip a flag when that action fires, then a
 // one-shot `bloginfo` filter appends the version to that very next name output.
+// Uses the theme's official hook + the core `bloginfo` filter — no theme edit needed.
 add_action('twentysixteen_credits', function() {
-    if (vfc_current_page_has_shortcode()) {
-        $GLOBALS['vfc_append_version_to_name'] = true;
-    }
+    $GLOBALS['vfc_append_version_to_name'] = true;
 });
 
 add_filter('bloginfo', function($output, $show) {
