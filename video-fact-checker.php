@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.5.2
+ * Version: 0.5.3
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.5.2');
+define('VFC_VERSION', '0.5.3');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 4);
 
@@ -133,15 +133,27 @@ function vfc_current_page_has_shortcode() {
     return $post && has_shortcode((string) $post->post_content, 'video_fact_checker');
 }
 
+// Show the version right after the site title in the footer, on shortcode pages.
+// The Twenty Sixteen footer prints the site name inside .site-info right after
+// firing `twentysixteen_credits`. We flip a flag when that action fires, then a
+// one-shot `bloginfo` filter appends the version to that very next name output.
 add_action('twentysixteen_credits', function() {
-    if (!vfc_current_page_has_shortcode()) {
-        return;
+    if (vfc_current_page_has_shortcode()) {
+        $GLOBALS['vfc_append_version_to_name'] = true;
     }
-    printf(
-        '<span class="vfc-footer-version">v%s (Beta)</span><span role="separator" aria-hidden="true"></span>',
-        esc_html(defined('VFC_VERSION') ? VFC_VERSION : '')
-    );
 });
+
+add_filter('bloginfo', function($output, $show) {
+    if ($show === 'name' && !empty($GLOBALS['vfc_append_version_to_name'])) {
+        // One-shot: only the footer's site-title occurrence.
+        $GLOBALS['vfc_append_version_to_name'] = false;
+        $output .= sprintf(
+            ' <span class="vfc-footer-version">v%s (Beta)</span>',
+            esc_html(defined('VFC_VERSION') ? VFC_VERSION : '')
+        );
+    }
+    return $output;
+}, 10, 2);
 
 // Activation hook
 register_activation_hook(__FILE__, function() {
