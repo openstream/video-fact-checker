@@ -194,3 +194,10 @@
 .content p {
     margin: 10px 0;
 }
+/* Version footer */
+.vfc-version {
+    margin-top: 18px;
+    font-size: 12px;
+    color: #999;
+    text-align: right;
+}

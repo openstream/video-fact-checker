@@ -34,4 +34,5 @@
             </div>
         </div>
     </form>
+    <p class="vfc-version">Video Fact Checker v<?php echo esc_html(defined('VFC_VERSION') ? VFC_VERSION : ''); ?> · Beta</p>
 </div>
