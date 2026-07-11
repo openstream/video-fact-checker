@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.5.1
+ * Version: 0.5.2
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.5.1');
+define('VFC_VERSION', '0.5.2');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 4);
 
@@ -138,7 +138,7 @@ add_action('twentysixteen_credits', function() {
         return;
     }
     printf(
-        '<span class="vfc-footer-version">Fact Checker v%s (Beta)</span><span role="separator" aria-hidden="true"></span>',
+        '<span class="vfc-footer-version">v%s (Beta)</span><span role="separator" aria-hidden="true"></span>',
         esc_html(defined('VFC_VERSION') ? VFC_VERSION : '')
     );
 });
