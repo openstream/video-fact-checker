@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.5.5
+ * Version: 0.6.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.5.5');
+define('VFC_VERSION', '0.6.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 4);
 
@@ -139,16 +139,24 @@ add_filter('bloginfo', function($output, $show) {
             esc_html(defined('VFC_VERSION') ? VFC_VERSION : ''),
             esc_html($model)
         );
-        // Footer link to the Roadmap page, if it exists.
-        $roadmap = get_page_by_path('roadmap');
-        $roadmap_link = '';
-        if ($roadmap) {
-            $roadmap_link = sprintf(
-                '<span role="separator" aria-hidden="true"></span><a href="%s" class="vfc-footer-roadmap">Roadmap</a>',
-                esc_url(get_permalink($roadmap))
-            );
+        // Footer links to our info pages, if they exist.
+        $links = '';
+        foreach ([
+            ['how-it-works', 'How It Works', 'vfc-footer-howitworks'],
+            ['roadmap', 'Roadmap', 'vfc-footer-roadmap'],
+        ] as $item) {
+            list($slug, $label, $class) = $item;
+            $page = get_page_by_path($slug);
+            if ($page) {
+                $links .= sprintf(
+                    '<span role="separator" aria-hidden="true"></span><a href="%s" class="%s">%s</a>',
+                    esc_url(get_permalink($page)),
+                    esc_attr($class),
+                    esc_html($label)
+                );
+            }
         }
-        $output .= $version . $roadmap_link;
+        $output .= $version . $links;
     }
     return $output;
 }, 10, 2);

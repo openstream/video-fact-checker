@@ -120,6 +120,21 @@ only) and OpenAI Whisper. Two approaches were evaluated:
         videos, compare cost + quality, then decide whether to make it the primary source
         with proxy+Whisper as fallback.
 
+## Phase 3c — Fact-check quality
+
+- [ ] **Add real web search to the fact-check.** Today `check_facts()` calls plain
+      `chat/completions` with no tools, so the model verifies claims **only from its
+      training data** — no live sources, no citations, and it's blind to anything after
+      its knowledge cutoff (visible in old runs: "as of ... October 2023"). This is a real
+      weakness for a fact-checker. OpenAI's web-search tool (Responses API) would let the
+      model look up current sources and return citations/links.
+      - Wins: current facts, source-backed verdicts, fewer hallucinations on niche/recent
+        claims.
+      - Costs/changes: switch to the Responses API + web_search tool; higher per-call cost
+        (search + more tokens); slower; need to surface the cited sources in the UI.
+      - Until then, the public "How it works" page states plainly that there is no live web
+        search.
+
 ## Phase 4 — Product polish
 
 - [ ] Per-user history / dashboard of past fact-checks.
