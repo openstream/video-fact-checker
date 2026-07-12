@@ -6,6 +6,11 @@
                    name="video-url"
                    required
                    placeholder="Enter video URL">
+            <!-- Shown only when a video URL from the clipboard was auto-filled. -->
+            <p id="vfc-clipboard-notice" class="vfc-clipboard-notice" style="display:none;">
+                <span class="vfc-clipboard-text">Pasted a video link from your clipboard.</span>
+                <button type="button" id="vfc-clipboard-clear" class="vfc-clipboard-clear">Clear</button>
+            </p>
         </div>
 
         <div class="form-actions">

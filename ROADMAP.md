@@ -1,7 +1,7 @@
 # Roadmap — Video Fact Checker
 
-**Current focus: grow usage and keep the tool reliable.** Nothing here is committed to a
-delivery date; it captures direction and decisions.
+Ideas and directions for the tool. Nothing here is committed to a delivery date; it
+captures possible features and the reasoning behind them.
 
 ## Context
 
@@ -10,20 +10,43 @@ delivery date; it captures direction and decisions.
 - **Other platforms are cheap.** TikTok, X/Twitter, Vimeo, etc. download without a proxy
   (see `class-video-processor.php` — the proxy is only applied to YouTube URLs).
 
-## Done (recent)
+## Possible features
 
-- Per-user daily usage limits (`RateLimiter`), tracked separately for YouTube vs. other
-  platforms; filterable via `vfc_rate_limit`.
-- Current OpenAI models in the dropdown, including GPT-5 support (conditional temperature)
-  and per-model knowledge-cutoff display.
-- YouTube downloads audio only (`-f bestaudio/best`) to minimize proxy bandwidth.
-- TikTok "silent HEVC" download fix.
-- Concise user-facing error messages; admin email on failures; daily log email + rotation.
-- Per-fact-check cost tracking with a stats page and a daily-budget alert.
-- Real platform detection (tiktok, instagram, …); URL normalization for stable cache keys.
-- Public "How It Works" page (discloses the prompt) and a public Roadmap page.
+### Fact-check quality
 
-## Reliability & upkeep
+- **Add real web search to the fact-check.** Today `check_facts()` uses plain
+  `chat/completions` with no tools, so the model verifies claims **only from its training
+  data** — no live sources, no citations, blind to anything after its cutoff. OpenAI's
+  web-search tool (Responses API) would let it look up current sources and cite them.
+  Costs: higher per-call price, slower, and the UI needs to show the sources. Until then,
+  the public "How It Works" page states plainly that there is no live web search.
+
+### Cost reduction
+
+- **InnerTube captions for YouTube (no proxy).** Suggested in issue #1 (thanks @rmoriz):
+  fetch YouTube captions via YouTube's internal InnerTube API (e.g.
+  [youtube-caption-extractor](https://github.com/devhims/youtube-caption-extractor)) —
+  no proxy, no Whisper. Trade-offs: only helps YouTube videos that *have* captions,
+  auto-captions are lower quality, and it adds a fragile internal-API dependency (needs a
+  PHP port). With the proxy now audio-only and cheap, the saving is small — revisit if
+  volume grows or proxy costs/reliability worsen. (The earlier yt-dlp `--write-subs`
+  approach failed via the proxy with 429s; InnerTube is a different, direct path.)
+
+### Spend control
+
+- **Global spend cap.** A site-wide daily ceiling on YouTube runs so a usage spike can't
+  blow the proxy budget, with an alert when near the cap.
+- **Proactive proxy-limit monitoring.** The reactive part is done (a 407 traffic-limit
+  failure produces a clear message + admin email). TODO: *proactively* surface the
+  remaining proxy allowance before it runs out.
+
+### Product polish
+
+- **Per-user history / dashboard of past fact-checks.**
+- **Richer admin analytics.** Per-run cost is already captured and shown on the
+  Transcriptions page with a daily-budget alert. TODO: runs per platform and cache-hit rate.
+
+## Reliability & upkeep (done, keep an eye on)
 
 The tool depends on `yt-dlp`, which breaks whenever YouTube changes something. On
 2026-07-11 prod YouTube broke because yt-dlp was ~1 year old and had no JS runtime;
@@ -38,37 +61,14 @@ updating yt-dlp + installing `deno` fixed it.
 - [ ] **OS updates.** Patch the Ubuntu droplet on a regular cadence. `deno` was installed
       manually — re-provisioning must reinstall it.
 
-## Cost reduction (deferred)
+## Done (recent)
 
-- [ ] **InnerTube captions for YouTube (no proxy).** Suggested in issue #1 (thanks @rmoriz):
-      fetch YouTube captions via YouTube's internal InnerTube API (e.g.
-      [youtube-caption-extractor](https://github.com/devhims/youtube-caption-extractor)) —
-      no proxy, no Whisper. **Deferred:** only helps YouTube videos that *have* captions,
-      auto-captions are lower quality, and it adds a fragile internal-API dependency (needs a
-      PHP port). With the proxy now audio-only and cheap, the saving is small. Revisit if
-      volume grows or proxy costs/reliability worsen. (Note: the earlier yt-dlp `--write-subs`
-      approach failed via the proxy with 429s; InnerTube is a different, direct path.)
-
-## Fact-check quality
-
-- [ ] **Add real web search to the fact-check.** Today `check_facts()` uses plain
-      `chat/completions` with no tools, so the model verifies claims **only from its training
-      data** — no live sources, no citations, blind to anything after its cutoff. OpenAI's
-      web-search tool (Responses API) would let it look up current sources and cite them.
-      Costs: higher per-call price, slower, and the UI needs to show the sources. Until then,
-      the public "How It Works" page states plainly that there is no live web search.
-
-## Abuse & spend control
-
-- [ ] **Tighten anonymous identity.** IP-based limits are easy to bypass; consider requiring
-      login beyond the first free run, or a lightweight challenge.
-- [ ] **Global spend cap.** A site-wide daily ceiling on YouTube runs so a usage spike can't
-      blow the proxy budget. Alert when near the cap.
-- [~] **Proxy limit monitoring.** Reactive part done (a 407 traffic-limit failure produces a
-      clear message + admin email). TODO: *proactively* surface remaining proxy allowance.
-
-## Product polish
-
-- [ ] Per-user history / dashboard of past fact-checks.
-- [~] **Admin analytics: cost per fact-check.** Per-run cost is captured and shown on the
-      Transcriptions page with a daily-budget alert. TODO: runs per platform, cache-hit rate.
+- Current OpenAI models in the dropdown, including GPT-5 support (conditional temperature)
+  and per-model knowledge-cutoff display; automatic fallback to a secondary model when the
+  primary returns an empty analysis, with the used model shown on every result.
+- YouTube downloads audio only (`-f bestaudio/best`) to minimize proxy bandwidth.
+- TikTok "silent HEVC" download fix.
+- Concise user-facing error messages; admin email on failures; daily log email + rotation.
+- Per-fact-check cost tracking with a stats page and a daily-budget alert.
+- Real platform detection (tiktok, instagram, …); URL normalization for stable cache keys.
+- Public "How It Works" page (discloses the prompt) and a public Roadmap page.

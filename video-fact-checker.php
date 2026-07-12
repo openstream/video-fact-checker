@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.11.1
+ * Version: 0.12.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,9 +31,9 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.11.1');
+define('VFC_VERSION', '0.12.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 7);
+define('VFC_DB_VERSION', 8);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -285,6 +285,16 @@ add_action('init', function() {
         if (!get_option('vfc_urls_normalized')) {
             (new VideoFactChecker\CacheManager())->normalize_stored_urls();
             update_option('vfc_urls_normalized', 1);
+        }
+
+        // One-off: the per-user daily rate limits were removed (costs are low even
+        // for YouTube). Delete the leftover per-user/per-day counter options that the
+        // old RateLimiter wrote (keys like vfc_rl_youtube_YYYYMMDD_<user>), which are
+        // date-scoped and never self-delete otherwise.
+        if (!get_option('vfc_rate_limit_options_purged')) {
+            global $wpdb;
+            $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'vfc_rl\\_%'");
+            update_option('vfc_rate_limit_options_purged', 1);
         }
     }
 });

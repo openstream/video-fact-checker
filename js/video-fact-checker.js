@@ -15,6 +15,66 @@ jQuery(document).ready(function($) {
 
     console.log('Video Fact Checker initialized');
 
+    // --- Clipboard auto-fill -------------------------------------------------
+    // If the user already copied a video link before landing here, offer to save
+    // them a paste: when the clipboard holds a URL on a supported video host, drop
+    // it into the field and show a small, dismissible notice. Only fires when the
+    // field is still empty, and only for recognized video hosts (never arbitrary
+    // clipboard text). Silently does nothing if the browser blocks clipboard reads.
+    const videoUrlInput = $('#video-url');
+    const clipboardNotice = $('#vfc-clipboard-notice');
+
+    // Hosts we actually support (mirrors VideoProcessor::detect_platform in PHP).
+    const SUPPORTED_VIDEO_HOSTS = [
+        'youtube.com', 'youtu.be', 'tiktok.com', 'instagram.com',
+        'twitter.com', 'x.com', 'vimeo.com', 'twitch.tv',
+        'dailymotion.com', 'dai.ly'
+    ];
+
+    function isSupportedVideoUrl(text) {
+        if (!text) return false;
+        let url;
+        try {
+            url = new URL(text.trim());
+        } catch (e) {
+            return false; // not a URL at all
+        }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+        const host = url.hostname.replace(/^www\./, '').toLowerCase();
+        return SUPPORTED_VIDEO_HOSTS.some(function(h) {
+            return host === h || host.endsWith('.' + h);
+        });
+    }
+
+    function tryClipboardAutofill() {
+        // Only help when the field is empty and the API is available.
+        if (videoUrlInput.val() || !navigator.clipboard || !navigator.clipboard.readText) {
+            return;
+        }
+        navigator.clipboard.readText().then(function(text) {
+            if (!videoUrlInput.val() && isSupportedVideoUrl(text)) {
+                videoUrlInput.val(text.trim());
+                clipboardNotice.show();
+            }
+        }).catch(function() {
+            // Clipboard read blocked or denied — nothing to do, stay silent.
+        });
+    }
+
+    // "Clear" removes the auto-filled URL and hides the notice.
+    $('#vfc-clipboard-clear').on('click', function() {
+        videoUrlInput.val('').focus();
+        clipboardNotice.hide();
+    });
+
+    // Once the user edits the field themselves, the notice is no longer relevant.
+    videoUrlInput.on('input', function() {
+        clipboardNotice.hide();
+    });
+
+    tryClipboardAutofill();
+    // -------------------------------------------------------------------------
+
     form.on('submit', function(e) {
         e.preventDefault();
         const videoUrl = $('#video-url').val();
