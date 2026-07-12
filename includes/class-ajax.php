@@ -121,7 +121,8 @@ class Ajax {
                         'analysis' => $cached_result['analysis'],
                         'short_url' => $cached_result['short_url'],
                         'cached' => true,
-                        'cached_at' => $cached_at
+                        'cached_at' => $cached_at,
+                        'model' => isset($cached_result['used_model']) ? $cached_result['used_model'] : ''
                     ]);
                     return;
                 }
@@ -173,6 +174,11 @@ class Ajax {
             if ($title !== '') {
                 $metrics['video_title'] = $title;
             }
+            // Record which model actually produced the analysis (may be the fallback).
+            $used_model = $this->fact_checker->get_used_model();
+            if ($used_model !== '') {
+                $metrics['used_model'] = $used_model;
+            }
 
             // Cache result (unless nocache is requested)
             $short_url = null;
@@ -207,7 +213,8 @@ class Ajax {
                 'analysis' => $analysis,
                 'short_url' => $short_url,
                 'cached' => false,
-                'nocache' => $nocache
+                'nocache' => $nocache,
+                'model' => $used_model
             ]);
 
         } catch (\Exception $e) {

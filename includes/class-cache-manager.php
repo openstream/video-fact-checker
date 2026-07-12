@@ -29,6 +29,7 @@ class CacheManager {
                 'analysis' => $result->analysis,
                 'short_url' => $result->short_url,
                 'created_at' => $result->created_at,
+                'used_model' => $result->used_model,
             ];
         }
 
@@ -56,6 +57,7 @@ class CacheManager {
         // Append any provided metrics with the correct format specifiers.
         $metric_formats = [
             'video_title' => '%s',
+            'used_model' => '%s',
             'platform' => '%s',
             'openai_prompt_tokens' => '%d',
             'openai_completion_tokens' => '%d',
@@ -97,6 +99,7 @@ class CacheManager {
             transcription longtext,
             analysis longtext,
             video_title varchar(500) DEFAULT NULL,
+            used_model varchar(50) DEFAULT NULL,
             platform varchar(20) DEFAULT NULL,
             openai_prompt_tokens int(11) DEFAULT NULL,
             openai_completion_tokens int(11) DEFAULT NULL,
@@ -145,7 +148,7 @@ class CacheManager {
      */
     public function get_all_transcriptions() {
         $sql = "SELECT id, video_url, short_url, transcription, analysis, created_at,
-                       video_title, platform, openai_cost, whisper_cost, proxy_cost, total_cost, cost_estimated
+                       video_title, used_model, platform, openai_cost, whisper_cost, proxy_cost, total_cost, cost_estimated
                 FROM {$this->table_name} ORDER BY created_at DESC, id DESC";
         return $this->wpdb->get_results($sql);
     }

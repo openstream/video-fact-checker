@@ -31,6 +31,7 @@ class Admin {
         register_setting('vfc_settings', 'vfc_openai_api_key');
         register_setting('vfc_settings', 'vfc_enable_logging');
         register_setting('vfc_settings', 'vfc_openai_model');
+        register_setting('vfc_settings', 'vfc_openai_fallback_model');
         register_setting('vfc_settings', 'vfc_output_format');
 
         // Cost accounting: pricing rates (USD) and daily budget.

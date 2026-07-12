@@ -3,7 +3,9 @@ namespace VideoFactChecker;
 
 class FactChecker {
     private $api_key;
-    private $model;
+    private $model;           // primary/configured model
+    private $fallback_model;  // used if the primary returns an empty analysis
+    private $used_model = '';  // the model that actually produced the result
     private $logger;
 
     // Usage from the last check_facts() call, for cost accounting.
@@ -13,12 +15,15 @@ class FactChecker {
     public function __construct() {
         $this->api_key = get_option('vfc_openai_api_key');
         $this->model = get_option('vfc_openai_model', 'gpt-4o-mini');
+        $this->fallback_model = get_option('vfc_openai_fallback_model', '');
         $this->logger = new Logger();
     }
 
     public function get_last_prompt_tokens() { return $this->last_prompt_tokens; }
     public function get_last_completion_tokens() { return $this->last_completion_tokens; }
     public function get_model() { return $this->model; }
+    /** The model that actually produced the last result (may be the fallback). */
+    public function get_used_model() { return $this->used_model !== '' ? $this->used_model : $this->model; }
     
     /**
      * True for models that only accept the default temperature (1) — the GPT-5 /
@@ -30,16 +35,46 @@ class FactChecker {
 
     public function check_facts($transcription) {
         $this->logger->log("Starting fact check for transcription");
-        // Reset per-run usage.
+        // Reset per-run state.
         $this->last_prompt_tokens = 0;
         $this->last_completion_tokens = 0;
-        
+        $this->used_model = '';
+
         $prompt = "Please fact check the following text and provide a detailed analysis. " .
                   "Highlight any claims that are verifiable and indicate their accuracy. " .
                   "Text to analyze: " . $transcription;
-        
+
+        // Try the primary model, then the configured fallback if the primary yields
+        // no usable content (seen with GPT-5 reasoning models). This guarantees a
+        // result while letting us use a newer primary model.
+        $models = [$this->model];
+        if ($this->fallback_model !== '' && $this->fallback_model !== $this->model) {
+            $models[] = $this->fallback_model;
+        }
+
+        $last_error = '';
+        foreach ($models as $idx => $model) {
+            if ($idx > 0) {
+                $this->logger->log("Primary model produced no analysis; falling back to {$model}");
+            }
+            $content = $this->request_analysis($model, $prompt, $last_error);
+            if ($content !== '') {
+                $this->used_model = $model;
+                return $this->format_response($content);
+            }
+        }
+
+        throw new \Exception('The fact-check could not be generated. ' . $last_error);
+    }
+
+    /**
+     * Request an analysis from a single model. Returns the content string, or ''
+     * if the model returned no usable content after a retry. Sets $last_error by
+     * reference. Captures token usage for the successful/last call.
+     */
+    private function request_analysis($model, $prompt, &$last_error) {
         $payload = [
-            'model' => $this->model,
+            'model' => $model,
             'messages' => [
                 [
                     'role' => 'system',
@@ -54,43 +89,68 @@ class FactChecker {
             ],
         ];
 
-        // GPT-5 / reasoning models only accept the default temperature (1) and use
-        // a different token-limit parameter. Classic gpt-4.x / gpt-4o models take a
-        // custom temperature. Send the right shape per model.
-        if ($this->model_uses_default_temperature($this->model)) {
-            // Omit temperature entirely (defaults to 1 — the only value allowed).
-            $this->logger->log("Model {$this->model}: using default temperature (reasoning-style model)");
+        // GPT-5 / reasoning models only accept the default temperature (1); classic
+        // gpt-4.x / gpt-4o models take a custom temperature.
+        if ($this->model_uses_default_temperature($model)) {
+            $this->logger->log("Model {$model}: using default temperature (reasoning-style model)");
         } else {
             $payload['temperature'] = 0.3;
         }
 
-        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $this->api_key,
-                'Content-Type' => 'application/json',
-            ],
-            'body' => json_encode($payload),
-            'timeout' => 60
-        ]);
-        
-        if (is_wp_error($response)) {
-            $this->logger->log("Fact check failed: " . $response->get_error_message(), 'error');
-            throw new \Exception($response->get_error_message());
-        }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        // Retry once per model on transient/empty responses before giving up on it.
+        $max_attempts = 2;
+        for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+            $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $this->api_key,
+                    'Content-Type' => 'application/json',
+                ],
+                'body' => json_encode($payload),
+                'timeout' => 60
+            ]);
 
-        // Capture token usage for cost accounting (present on Chat Completions).
-        if (isset($body['usage'])) {
-            $this->last_prompt_tokens = (int) ($body['usage']['prompt_tokens'] ?? 0);
-            $this->last_completion_tokens = (int) ($body['usage']['completion_tokens'] ?? 0);
-            $this->logger->log(sprintf(
-                "OpenAI usage: prompt=%d completion=%d",
-                $this->last_prompt_tokens, $this->last_completion_tokens
-            ));
+            if (is_wp_error($response)) {
+                $last_error = $response->get_error_message();
+                $this->logger->log("Fact check request failed ({$model}, attempt {$attempt}): {$last_error}", 'error');
+                continue;
+            }
+
+            $code = (int) wp_remote_retrieve_response_code($response);
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+
+            if ($code !== 200) {
+                $last_error = isset($body['error']['message']) ? $body['error']['message'] : "HTTP {$code}";
+                $this->logger->log("Fact check API error ({$model}, attempt {$attempt}): {$last_error}", 'error');
+                // A bad-request (e.g. unsupported param) won't fix itself on retry.
+                if ($code === 400) {
+                    break;
+                }
+                continue;
+            }
+
+            // Capture token usage (accumulate across models for cost accounting).
+            if (isset($body['usage'])) {
+                $this->last_prompt_tokens += (int) ($body['usage']['prompt_tokens'] ?? 0);
+                $this->last_completion_tokens += (int) ($body['usage']['completion_tokens'] ?? 0);
+                $this->logger->log(sprintf(
+                    "OpenAI usage (%s): prompt=%d completion=%d",
+                    $model, (int) ($body['usage']['prompt_tokens'] ?? 0), (int) ($body['usage']['completion_tokens'] ?? 0)
+                ));
+            }
+
+            $content = isset($body['choices'][0]['message']['content'])
+                ? trim((string) $body['choices'][0]['message']['content'])
+                : '';
+            if ($content !== '') {
+                return $content;
+            }
+
+            $finish = isset($body['choices'][0]['finish_reason']) ? $body['choices'][0]['finish_reason'] : 'unknown';
+            $last_error = "empty analysis content (finish_reason: {$finish})";
+            $this->logger->log("Fact check returned empty content ({$model}, attempt {$attempt}, finish_reason {$finish})", 'error');
         }
 
-        return $this->format_response($body['choices'][0]['message']['content']);
+        return '';
     }
     
     /**

@@ -21,35 +21,45 @@
                 </td>
             </tr>
 
+            <?php
+            // Shared option-list renderer for the model dropdowns. Labels + prices
+            // come from CostCalculator::MODEL_PRICING (single source of truth).
+            $vfc_render_model_options = function ($selected, $include_none = false) {
+                if ($include_none) {
+                    printf('<option value="" %s>— none —</option>', selected($selected, '', false));
+                }
+                foreach (\VideoFactChecker\CostCalculator::MODEL_PRICING as $value => $rates) {
+                    list($in, $out) = $rates;
+                    $cutoff = \VideoFactChecker\CostCalculator::cutoff_for($value);
+                    $label = sprintf('%s%s ($%s/1M in · $%s/1M out)', $value,
+                        $cutoff ? ' — cutoff ' . $cutoff : '',
+                        rtrim(rtrim(number_format($in, 2), '0'), '.'),
+                        rtrim(rtrim(number_format($out, 2), '0'), '.'));
+                    printf('<option value="%s" %s>%s</option>',
+                        esc_attr($value), selected($selected, $value, false), esc_html($label));
+                }
+            };
+            ?>
             <tr>
                 <th scope="row">
                     <label for="vfc_openai_model">AI Model</label>
                 </th>
                 <td>
                     <select id="vfc_openai_model" name="vfc_openai_model">
-                        <?php
-                        $current_model = get_option('vfc_openai_model', 'gpt-4o-mini');
-                        // Chat Completions models supporting temperature 0.3 (see class-fact-checker.php).
-                        // Reasoning models (o-series / gpt-5) are intentionally omitted: they require
-                        // code changes (max_completion_tokens, no custom temperature) before use.
-                        // Labels and prices come from CostCalculator::MODEL_PRICING so the dropdown
-                        // and the cost accounting always use the same rates.
-                        foreach (\VideoFactChecker\CostCalculator::MODEL_PRICING as $value => $rates) {
-                            list($in, $out) = $rates;
-                            $cutoff = \VideoFactChecker\CostCalculator::cutoff_for($value);
-                            $label = sprintf('%s%s ($%s/1M in · $%s/1M out)', $value,
-                                $cutoff ? ' — cutoff ' . $cutoff : '',
-                                rtrim(rtrim(number_format($in, 2), '0'), '.'),
-                                rtrim(rtrim(number_format($out, 2), '0'), '.'));
-                            printf(
-                                '<option value="%s" %s>%s</option>',
-                                esc_attr($value),
-                                selected($current_model, $value, false),
-                                esc_html($label)
-                            );
-                        }
-                        ?>
+                        <?php $vfc_render_model_options(get_option('vfc_openai_model', 'gpt-4o-mini')); ?>
                     </select>
+                    <p class="description">Primary model used for the fact-check analysis.</p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="vfc_openai_fallback_model">Fallback Model</label>
+                </th>
+                <td>
+                    <select id="vfc_openai_fallback_model" name="vfc_openai_fallback_model">
+                        <?php $vfc_render_model_options(get_option('vfc_openai_fallback_model', ''), true); ?>
+                    </select>
+                    <p class="description">Used automatically if the primary model returns no analysis (e.g. GPT-5 reasoning models occasionally do). Pick a reliable classic model like <code>gpt-4.1-mini</code>. Set to “none” to disable.</p>
                 </td>
             </tr>
 

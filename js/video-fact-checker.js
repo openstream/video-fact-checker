@@ -134,13 +134,22 @@ jQuery(document).ready(function($) {
             // Remove any cache notice from a previous run.
             resultsContainer.find('.vfc-cache-notice').remove();
 
-            // If this result came from the cache, show when it was originally checked.
+            // Info notice: always show which model produced the analysis, plus
+            // whether this came from the cache (and when). Uses .text() so nothing
+            // from the response can inject markup.
+            const parts = [];
             if (data.cached) {
                 const when = data.cached_at ? ` on ${data.cached_at}` : '';
-                const notice = $('<div class="vfc-cache-notice"></div>');
-                notice.text(`Cached result — originally fact-checked${when}.`);
-                resultsContainer.prepend(notice);
+                parts.push(`Cached result — originally fact-checked${when}`);
+            } else {
+                parts.push('Freshly fact-checked');
             }
+            if (data.model) {
+                parts.push(`model: ${data.model}`);
+            }
+            const notice = $('<div class="vfc-cache-notice"></div>');
+            notice.text(parts.join(' · ') + '.');
+            resultsContainer.prepend(notice);
 
             transcriptionContent.text(data.transcription);
             analysisContent.html(data.analysis);
