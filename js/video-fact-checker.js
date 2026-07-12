@@ -15,14 +15,20 @@ jQuery(document).ready(function($) {
 
     console.log('Video Fact Checker initialized');
 
-    // --- Clipboard auto-fill -------------------------------------------------
-    // If the user already copied a video link before landing here, offer to save
-    // them a paste: when the clipboard holds a URL on a supported video host, drop
-    // it into the field and show a small, dismissible notice. Only fires when the
-    // field is still empty, and only for recognized video hosts (never arbitrary
-    // clipboard text). Silently does nothing if the browser blocks clipboard reads.
+    // --- Paste video link from clipboard -------------------------------------
+    // If the user already copied a video link before landing here, save them a
+    // paste. Browsers only allow reading the clipboard after a user gesture (an
+    // on-load read throws "Document is not focused" / NotAllowedError), so the
+    // primary path is a visible "Paste" button: clicking it is the required
+    // gesture. We ALSO try a silent read on load — that succeeds in the cases
+    // where the browser allows it (e.g. permission already granted) and simply
+    // fails over to the button otherwise. Only recognized video hosts are ever
+    // filled in — never arbitrary clipboard text.
     const videoUrlInput = $('#video-url');
     const clipboardNotice = $('#vfc-clipboard-notice');
+    const pasteBtn = $('#vfc-clipboard-paste');
+    const pasteBtnLabel = $('.vfc-clipboard-paste-label', pasteBtn);
+    const PASTE_DEFAULT_LABEL = pasteBtnLabel.text();
 
     // Hosts we actually support (mirrors VideoProcessor::detect_platform in PHP).
     const SUPPORTED_VIDEO_HOSTS = [
@@ -46,33 +52,75 @@ jQuery(document).ready(function($) {
         });
     }
 
-    function tryClipboardAutofill() {
-        // Only help when the field is empty and the API is available.
-        if (videoUrlInput.val() || !navigator.clipboard || !navigator.clipboard.readText) {
-            return;
+    const clipboardApiAvailable = !!(navigator.clipboard && navigator.clipboard.readText);
+
+    // Put a supported URL into the field and swap the paste button for the notice.
+    function fillWithUrl(text) {
+        videoUrlInput.val(text.trim());
+        pasteBtn.hide();
+        clipboardNotice.show();
+    }
+
+    // Briefly flash a message on the paste button, then restore its label.
+    let pasteLabelTimer = null;
+    function flashPasteLabel(message) {
+        pasteBtnLabel.text(message);
+        if (pasteLabelTimer) clearTimeout(pasteLabelTimer);
+        pasteLabelTimer = setTimeout(function() {
+            pasteBtnLabel.text(PASTE_DEFAULT_LABEL);
+        }, 2500);
+    }
+
+    // Show the paste button only when it can do something: field empty + API present.
+    function refreshPasteButton() {
+        if (clipboardApiAvailable && !videoUrlInput.val()) {
+            pasteBtn.show();
+        } else {
+            pasteBtn.hide();
         }
+    }
+
+    // Read the clipboard and act on it. `fromGesture` is true for the button click
+    // (where we give feedback if there's nothing useful) and false for the silent
+    // on-load attempt (where any failure stays quiet).
+    function readClipboard(fromGesture) {
+        if (videoUrlInput.val() || !clipboardApiAvailable) return;
         navigator.clipboard.readText().then(function(text) {
-            if (!videoUrlInput.val() && isSupportedVideoUrl(text)) {
-                videoUrlInput.val(text.trim());
-                clipboardNotice.show();
+            if (videoUrlInput.val()) return; // user typed meanwhile
+            if (isSupportedVideoUrl(text)) {
+                fillWithUrl(text);
+            } else if (fromGesture) {
+                flashPasteLabel('No video link in your clipboard');
             }
         }).catch(function() {
-            // Clipboard read blocked or denied — nothing to do, stay silent.
+            // Blocked/denied. On the silent load attempt we stay quiet (the button
+            // remains for the user); on an explicit click we hint at the block.
+            if (fromGesture) {
+                flashPasteLabel("Couldn't read the clipboard — paste manually");
+            }
         });
     }
 
-    // "Clear" removes the auto-filled URL and hides the notice.
+    // Button click IS the user gesture browsers require for clipboard reads.
+    pasteBtn.on('click', function() {
+        readClipboard(true);
+    });
+
+    // "Clear" empties the auto-filled URL, hides the notice, restores the button.
     $('#vfc-clipboard-clear').on('click', function() {
         videoUrlInput.val('').focus();
         clipboardNotice.hide();
+        refreshPasteButton();
     });
 
     // Once the user edits the field themselves, the notice is no longer relevant.
     videoUrlInput.on('input', function() {
         clipboardNotice.hide();
+        refreshPasteButton();
     });
 
-    tryClipboardAutofill();
+    refreshPasteButton();
+    readClipboard(false); // best-effort silent attempt; button covers the rest
     // -------------------------------------------------------------------------
 
     form.on('submit', function(e) {

@@ -6,7 +6,14 @@
                    name="video-url"
                    required
                    placeholder="Enter video URL">
-            <!-- Shown only when a video URL from the clipboard was auto-filled. -->
+            <!-- Paste-from-clipboard helper. Browsers only allow reading the
+                 clipboard after a user gesture, so this button provides that
+                 gesture. Shown only when the field is empty and the API exists;
+                 the button's label doubles as feedback ("No video link found"). -->
+            <button type="button" id="vfc-clipboard-paste" class="vfc-clipboard-paste" style="display:none;">
+                <span class="vfc-clipboard-paste-label">Paste video link from clipboard</span>
+            </button>
+            <!-- Shown only when a video URL from the clipboard was filled in. -->
             <p id="vfc-clipboard-notice" class="vfc-clipboard-notice" style="display:none;">
                 <span class="vfc-clipboard-text">Pasted a video link from your clipboard.</span>
                 <button type="button" id="vfc-clipboard-clear" class="vfc-clipboard-clear">Clear</button>
