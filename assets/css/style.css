@@ -210,3 +210,40 @@
     margin: 0 0 14px;
     font-size: 13px;
 }
+
+/* Header navigation: always-visible (no burger) on all screen sizes.
+   Twenty Sixteen hides the primary menu behind a #menu-toggle on mobile; we
+   suppress that and keep the menu shown as a simple horizontal bar. */
+.menu-toggle {
+    display: none !important;
+}
+.site-header-menu {
+    display: block !important;   /* theme toggles this closed on mobile */
+}
+.main-navigation .primary-menu {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0 24px;
+    border: 0;
+}
+.main-navigation li {
+    border: 0;
+    float: none;
+}
+.main-navigation .primary-menu > li > a {
+    padding: 8px 0;
+}
+
+
+
+/* Footer separators: middle dot (·) instead of the theme's slash (/).
+   Higher specificity than the theme rule so it actually overrides. */
+.site-footer .site-info span[role=separator]::before {
+    content: '\00b7' !important;
+}
+
+/* The theme also puts a slash after the footer site-title; make it a dot too. */
+.site-footer .site-title::after {
+    content: '\00b7' !important;
+}

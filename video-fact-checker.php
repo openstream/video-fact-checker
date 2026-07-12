@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.10.3
+ * Version: 0.11.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.10.3');
+define('VFC_VERSION', '0.11.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 7);
 
@@ -125,52 +125,29 @@ add_action('wp_enqueue_scripts', 'vfc_enqueue_scripts');
 //   <span class="site-title"><a href="{home_url}" rel="home">{site name}</a></span>
 //   {privacy link}  <a class="imprint">Proudly powered by WordPress</a>
 //
-// We want:  Home · {Site Name vX (Beta)} → GitHub tag · model: … · How It Works ·
-//           Roadmap · Privacy · Made by Openstream …
+// We want:  {Site Name vX (Beta)} → GitHub tag · powered by <model> (cutoff …) ·
+//           Privacy · Made by Openstream …
 //
-// Clean approach (no unbalanced-tag hacks):
-//  - In the credits hook (fires BEFORE the site title) we print, in order: a "Home"
-//    link, then our info links, then the "model:" text. These are complete elements.
-//  - A `home_url` filter, active only during the credits, points the site-title link
-//    at the current GitHub release tag instead of home.
-//  - A one-shot `bloginfo('name')` filter appends the version to the site name, so
-//    "Site Name vX (Beta)" is the GitHub-linked text.
+// - A `home_url` filter (active only during the credits) points the site-title link
+//   at the current GitHub release tag instead of home.
+// - A one-shot `bloginfo('name')` filter appends the version inside that link, then
+//   closes it and emits "powered by <model>" as plain (unlinked) text.
 add_action('twentysixteen_credits', function() {
-    // Print the leading "Home" link, our info-page links, and the model note.
-    // (These render before the site-title span.)
-    $out = sprintf(
-        '<a href="%s" class="vfc-footer-home">Home</a>',
-        esc_url(home_url('/'))
-    );
-
-    foreach ([
-        ['how-it-works', 'How It Works', 'vfc-footer-howitworks'],
-        ['roadmap', 'Roadmap', 'vfc-footer-roadmap'],
-    ] as $item) {
-        list($slug, $label, $class) = $item;
-        $page = get_page_by_path($slug);
-        if ($page) {
-            $out .= sprintf(
-                '<span role="separator" aria-hidden="true"></span><a href="%s" class="%s">%s</a>',
-                esc_url(get_permalink($page)),
-                esc_attr($class),
-                esc_html($label)
-            );
-        }
-    }
-
-    // Model shown as plain text (not linked).
+    // Nav links (Home / How It Works / Roadmap) now live in the header menu, not
+    // here. The footer shows: "{Site Name vX (Beta)} → GitHub · powered by <model>
+    // (cutoff …) · Privacy · Made by Openstream …".
+    // The site title is printed by the theme right after this hook; we point its
+    // link at the GitHub tag and append the version to it (via the filters below).
+    // Then the model is shown as plain text right after (no "model:" label).
     $model = get_option('vfc_openai_model', 'gpt-4o-mini');
     $cutoff = VideoFactChecker\CostCalculator::cutoff_for($model);
     $model_label = $model . ($cutoff ? ' (cutoff ' . $cutoff . ')' : '');
-    $out .= '<span class="vfc-footer-model" role="separator" aria-hidden="true"></span>'
-        . '<span class="vfc-footer-model-text">model: ' . esc_html($model_label) . '</span>'
-        . '<span role="separator" aria-hidden="true"></span>';
+    // Stash the model note; it is emitted by the bloginfo filter right after the
+    // site-title link closes, so it reads directly after the version (no leading
+    // separator, no "model:" prefix).
+    $GLOBALS['vfc_footer_model_html'] = ' <span class="vfc-footer-model-text">powered by '
+        . esc_html($model_label) . '</span>';
 
-    echo $out;
-
-    // From here until the site title is printed, point home_url at the GitHub tag,
-    // and arm the one-shot version-append on the site name.
     $GLOBALS['vfc_in_footer_credits'] = true;
     $GLOBALS['vfc_append_version_to_name'] = true;
 });
@@ -190,7 +167,14 @@ add_filter('bloginfo', function($output, $show) {
         // home_url now that the site-title link has been built.
         $GLOBALS['vfc_append_version_to_name'] = false;
         $GLOBALS['vfc_in_footer_credits'] = false;
-        $output .= sprintf(' v%s (Beta)', esc_html(defined('VFC_VERSION') ? VFC_VERSION : ''));
+
+        // Append the version inside the (GitHub-linked) site title, then close that
+        // link and emit the model note as plain text right after — so the version is
+        // a link but "powered by <model>" is not. The theme prints its own </a> after
+        // this; a browser harmlessly ignores that extra stray close.
+        $version = sprintf(' v%s (Beta)', esc_html(defined('VFC_VERSION') ? VFC_VERSION : ''));
+        $model_html = isset($GLOBALS['vfc_footer_model_html']) ? $GLOBALS['vfc_footer_model_html'] : '';
+        $output .= $version . '</a>' . $model_html;
     }
     return $output;
 }, 10, 2);
