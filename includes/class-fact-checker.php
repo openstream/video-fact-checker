@@ -245,28 +245,55 @@ class FactChecker {
             );
         }
 
-        // Fallback to basic markdown to HTML conversion
-        $formatted = nl2br(htmlspecialchars($content));
-        
-        // Convert markdown syntax to HTML
-        $patterns = [
-            '/\*\*(.*?)\*\*/s' => '<strong>$1</strong>',  // Bold
-            '/\*(.*?)\*/s' => '<em>$1</em>',              // Italic
-            '/#{3}(.*?)\n/' => '<h3>$1</h3>',            // H3
-            '/#{2}(.*?)\n/' => '<h2>$1</h2>',            // H2
-            '/#{1}(.*?)\n/' => '<h1>$1</h1>',            // H1
-            '/`(.*?)`/' => '<code>$1</code>',            // Inline code
-            '/\[(.*?)\]\((.*?)\)/' => '<a href="$2">$1</a>', // Links
-        ];
-        
-        foreach ($patterns as $pattern => $replacement) {
-            $formatted = preg_replace($pattern, $replacement, $formatted);
+        // Fallback to basic markdown to HTML conversion (only used when Parsedown
+        // is unavailable). Convert headings/lists line-by-line BEFORE escaping, so
+        // heading markers are only recognised at the start of a line — never on a
+        // stray '#' inside the text (e.g. the '#' in a numeric HTML entity like
+        // &#039;, which previously turned into "&<h1>039;" and blew up the font).
+        $lines = preg_split('/\r?\n/', $content);
+        $html_lines = [];
+        $in_list = false;
+        foreach ($lines as $line) {
+            // Bullet list item.
+            if (preg_match('/^\s*[-*]\s+(.*)$/', $line, $m)) {
+                if (!$in_list) { $html_lines[] = '<ul>'; $in_list = true; }
+                $html_lines[] = '<li>' . $this->format_inline($m[1]) . '</li>';
+                continue;
+            }
+            if ($in_list) { $html_lines[] = '</ul>'; $in_list = false; }
+
+            // Headings, only when '#' is at the very start of the line.
+            if (preg_match('/^\s*(#{1,6})\s+(.*)$/', $line, $m)) {
+                $level = min(strlen($m[1]) + 1, 6); // #→h2, ##→h3, … (keep h1 for page)
+                $html_lines[] = "<h{$level}>" . $this->format_inline($m[2]) . "</h{$level}>";
+                continue;
+            }
+
+            if (trim($line) === '') { $html_lines[] = ''; continue; }
+            $html_lines[] = '<p>' . $this->format_inline($line) . '</p>';
         }
-        
-        // Convert bullet points
-        $formatted = preg_replace('/^- (.*?)$/m', '<li>$1</li>', $formatted);
-        $formatted = preg_replace('/<li>.*?<\/li>/s', '<ul>$0</ul>', $formatted);
-        
-        return $formatted;
+        if ($in_list) { $html_lines[] = '</ul>'; }
+
+        return implode("\n", $html_lines);
+    }
+
+    /**
+     * Inline markdown → HTML for a single line. Escapes text first (without
+     * double-encoding existing HTML entities), then applies bold/italic/code/links.
+     */
+    private function format_inline($text) {
+        // ENT_HTML5 + double_encode=false leaves existing entities (e.g. &#039;)
+        // intact instead of turning them into &amp;#039;.
+        $text = htmlspecialchars($text, ENT_QUOTES | ENT_HTML5, 'UTF-8', false);
+        $patterns = [
+            '/\*\*(.*?)\*\*/s' => '<strong>$1</strong>',      // Bold
+            '/\*(.*?)\*/s'     => '<em>$1</em>',              // Italic
+            '/`(.*?)`/'        => '<code>$1</code>',          // Inline code
+            '/\[(.*?)\]\((.*?)\)/' => '<a href="$2">$1</a>',   // Links
+        ];
+        foreach ($patterns as $pattern => $replacement) {
+            $text = preg_replace($pattern, $replacement, $text);
+        }
+        return $text;
     }
 }
