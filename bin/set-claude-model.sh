@@ -15,10 +15,12 @@ set -euo pipefail
 PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PLUGIN_DIR"
 
+# Match the real trailer line only (at the start of a line), not prose mentions,
+# and stop before any "(" or "<" (extra qualifiers / the email).
 MODEL="$(git log -1 --format='%b' \
-  | grep -oiE 'Co-Authored-By: Claude [^<(]*' \
-  | head -1 \
-  | sed 's/Co-Authored-By: Claude //I; s/ *$//')"
+  | grep -iE '^Co-Authored-By: Claude ' \
+  | tail -1 \
+  | sed -E 's/^Co-Authored-By: Claude //I; s/ *[<(].*$//; s/ *$//')"
 
 if [ -z "${MODEL}" ]; then
   echo "No 'Co-Authored-By: Claude …' trailer in the latest commit; leaving vfc_claude_model unchanged."
