@@ -43,7 +43,9 @@ class FactChecker {
             'messages' => [
                 [
                     'role' => 'system',
-                    'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. You answer in the language of the transcript'
+                    'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. You answer in the language of the transcript. '
+                        . 'Format your answer as readable prose with short paragraphs and, where helpful, bullet lists. '
+                        . 'Do NOT use tables or any tabular/columnar layout — the results are read on mobile screens where tables do not fit.'
                 ],
                 [
                     'role' => 'user',
@@ -91,9 +93,78 @@ class FactChecker {
         return $this->format_response($body['choices'][0]['message']['content']);
     }
     
+    /**
+     * Convert GitHub-flavored Markdown tables into mobile-friendly prose/lists.
+     * Each data row becomes a bullet line of "Header: cell · Header: cell". Text
+     * outside tables is left untouched. Safe no-op if there are no tables.
+     */
+    private function convert_markdown_tables($content) {
+        if (!is_string($content) || strpos($content, '|') === false) {
+            return $content;
+        }
+
+        $lines = preg_split('/\r?\n/', $content);
+        $out = [];
+        $n = count($lines);
+        $i = 0;
+
+        $is_row = function ($line) {
+            return trim($line) !== '' && strpos($line, '|') !== false;
+        };
+        $is_separator = function ($line) {
+            // e.g. |---|:--:|---| — only dashes, colons, pipes, spaces.
+            return (bool) preg_match('/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/', $line)
+                && strpos($line, '-') !== false;
+        };
+        $cells = function ($line) {
+            $line = trim($line);
+            $line = preg_replace('/^\|/', '', $line);
+            $line = preg_replace('/\|$/', '', $line);
+            $parts = explode('|', $line);
+            return array_map('trim', $parts);
+        };
+
+        while ($i < $n) {
+            // A table = a header row, a separator row, then >=1 data rows.
+            if ($i + 1 < $n && $is_row($lines[$i]) && $is_separator($lines[$i + 1])) {
+                $headers = $cells($lines[$i]);
+                $i += 2; // skip header + separator
+                $rows = [];
+                while ($i < $n && $is_row($lines[$i]) && !$is_separator($lines[$i])) {
+                    $rows[] = $cells($lines[$i]);
+                    $i++;
+                }
+                foreach ($rows as $row) {
+                    $pairs = [];
+                    foreach ($row as $c => $val) {
+                        if ($val === '') {
+                            continue;
+                        }
+                        $label = isset($headers[$c]) ? trim($headers[$c]) : '';
+                        $pairs[] = ($label !== '') ? ($label . ': ' . $val) : $val;
+                    }
+                    if ($pairs) {
+                        $out[] = '- ' . implode(' — ', $pairs);
+                    }
+                }
+                $out[] = ''; // blank line after the converted block
+                continue;
+            }
+            $out[] = $lines[$i];
+            $i++;
+        }
+
+        return implode("\n", $out);
+    }
+
     private function format_response($content) {
         $output_format = get_option('vfc_output_format', 'html');
-        
+
+        // Safety net: the prompt asks the model not to use tables (they don't read
+        // well on mobile), but models don't always comply — convert any Markdown
+        // tables to readable prose/lists before rendering.
+        $content = $this->convert_markdown_tables($content);
+
         if ($output_format === 'markdown') {
             return $content; // Return raw markdown
         }
