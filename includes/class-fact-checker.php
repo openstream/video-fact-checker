@@ -89,12 +89,22 @@ class FactChecker {
             ],
         ];
 
-        // GPT-5 / reasoning models only accept the default temperature (1); classic
-        // gpt-4.x / gpt-4o models take a custom temperature.
+        // GPT-5 / reasoning models only accept the default temperature (1) and use
+        // max_completion_tokens; classic gpt-4.x / gpt-4o models take a custom
+        // temperature and use max_tokens.
         if ($this->model_uses_default_temperature($model)) {
-            $this->logger->log("Model {$model}: using default temperature (reasoning-style model)");
+            // GPT-5.x are hybrid reasoning models: hidden reasoning tokens are drawn
+            // from the same output budget, so a tight budget can yield HTTP 200 with
+            // EMPTY content (finish_reason "length"). For transcript fact-checking we
+            // don't need chain-of-thought, so disable it and give a generous budget
+            // for the visible answer. (reasoning_effort:none is honored on gpt-5.x
+            // since OpenAI's Apr-2026 fix.)
+            $payload['reasoning_effort'] = 'none';
+            $payload['max_completion_tokens'] = 6000;
+            $this->logger->log("Model {$model}: reasoning_effort=none, max_completion_tokens=6000 (reasoning-style model)");
         } else {
             $payload['temperature'] = 0.3;
+            $payload['max_tokens'] = 4000;
         }
 
         // Retry once per model on transient/empty responses before giving up on it.
