@@ -182,6 +182,10 @@ class VideoProcessor {
             // (via --print-to-file), so we get it without an extra request.
             $title_file = $output_dir . '/' . $uniq . '.title';
             $title_opt = '--print-to-file ' . escapeshellarg('%(title)s') . ' ' . escapeshellarg($title_file);
+
+            // Bound yt-dlp's own retries/timeout so a stuck proxy node fails fast;
+            // our outer retry loop then re-runs (often getting a fresh proxy IP).
+            $net_opts = '--retries 3 --socket-timeout 20';
             
             // Verify YouTube URL detection
             $is_youtube = $this->is_youtube_url($url);
@@ -202,8 +206,9 @@ class VideoProcessor {
                     // almost always offers a separate audio stream; the fallbacks
                     // only kick in if it genuinely doesn't.
                     $command = sprintf(
-                        'yt-dlp --proxy %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
+                        'yt-dlp --proxy %s %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
                         escapeshellarg($proxy),
+                        $net_opts,
                         escapeshellarg('bestaudio/best'),
                         $title_opt,
                         escapeshellarg($output_file),
@@ -227,8 +232,9 @@ class VideoProcessor {
                         // Audio-only selection (see the proxy branch above) — keeps
                         // downloads small even on the cookies path.
                         $command = sprintf(
-                            'yt-dlp --cookies %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
+                            'yt-dlp --cookies %s %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
                             escapeshellarg($cookies_file),
+                            $net_opts,
                             escapeshellarg('bestaudio/best'),
                             $title_opt,
                             escapeshellarg($output_file),
@@ -248,7 +254,8 @@ class VideoProcessor {
                 // "download" format (h264 + aac) does carry real audio, so prefer it,
                 // then fall back to bestaudio / best for all other platforms.
                 $command = sprintf(
-                    'yt-dlp -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
+                    'yt-dlp %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
+                    $net_opts,
                     escapeshellarg('download/bestaudio/best'),
                     $title_opt,
                     escapeshellarg($output_file),
@@ -258,7 +265,32 @@ class VideoProcessor {
 
             $this->logger->log("=== Executing final command ===");
             $this->logger->log("Command: " . $this->maskProxyCredentialsInCommand($command));
-            exec($command, $output, $return_var);
+
+            // Retry on transient proxy failures (e.g. a 522 / "Tunnel connection
+            // failed" — the proxy node briefly couldn't reach the target). These are
+            // not deterministic, so a short retry usually succeeds. Non-transient
+            // errors (no audio, unsupported URL, 407 auth, …) are not retried.
+            $max_attempts = 3;
+            for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+                $output = [];
+                $return_var = 0;
+                exec($command, $output, $return_var);
+
+                if ($return_var === 0) {
+                    break;
+                }
+                $err = implode("\n", $output);
+                $transient = (stripos($err, 'Tunnel connection failed') !== false)
+                    || (stripos($err, '522') !== false)
+                    || (stripos($err, 'Temporary failure') !== false)
+                    || (stripos($err, 'Connection reset') !== false)
+                    || (stripos($err, 'timed out') !== false);
+                if (!$transient || $attempt === $max_attempts) {
+                    break;
+                }
+                $this->logger->log("Transient download error (attempt {$attempt}/{$max_attempts}), retrying: " . $this->first_line($err));
+                sleep(2 * $attempt); // brief backoff: 2s, 4s
+            }
 
             if (!empty($output)) {
                 $this->logger->log("Command output: " . implode("\n", $output));
@@ -459,6 +491,17 @@ class VideoProcessor {
 
         // Fallback: generic, no raw output.
         return "This video couldn't be downloaded. Please check the link or try a different video.";
+    }
+
+    /** First non-empty line of a multi-line string (for concise log messages). */
+    private function first_line($text) {
+        foreach (preg_split('/\r?\n/', (string) $text) as $line) {
+            $line = trim($line);
+            if ($line !== '') {
+                return mb_substr($line, 0, 200);
+            }
+        }
+        return '';
     }
 
     private function extract_proxy_error_message($error_output) {
