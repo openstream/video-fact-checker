@@ -211,57 +211,6 @@
     font-size: 13px;
 }
 
-/* "Paste video link from clipboard" helper button (shown when the field is empty). */
-.vfc-clipboard-paste {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin: 8px 0 0;
-    padding: 6px 12px;
-    background: #eef6fb;
-    border: 1px solid #cfe4f2;
-    border-radius: 6px;
-    color: #21506e;
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-}
-.vfc-clipboard-paste:hover {
-    background: #e2eff8;
-    border-color: #b6d6ec;
-}
-.vfc-clipboard-paste .vfc-clipboard-paste-label::before {
-    content: '\1F4CB'; /* clipboard emoji */
-    margin-right: 6px;
-}
-
-/* Notice shown when a video link was auto-filled from the clipboard. */
-.vfc-clipboard-notice {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin: 8px 0 0;
-    font-size: 13px;
-    color: #21506e;
-}
-.vfc-clipboard-notice .vfc-clipboard-text::before {
-    content: '\1F4CB'; /* clipboard emoji */
-    margin-right: 6px;
-}
-.vfc-clipboard-clear {
-    background: none;
-    border: 0;
-    padding: 0;
-    color: #2b7bb9;
-    font: inherit;
-    text-decoration: underline;
-    cursor: pointer;
-}
-.vfc-clipboard-clear:hover {
-    color: #21506e;
-}
-
 /* Header navigation: always-visible (no burger) on all screen sizes.
    Twenty Sixteen hides the primary menu behind a #menu-toggle on mobile; we
    suppress that and keep the menu shown as a simple horizontal bar. */
