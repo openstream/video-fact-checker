@@ -31,13 +31,23 @@ updating yt-dlp + installing `deno` fixed it.
 
 - [x] **yt-dlp needs a JS runtime for YouTube** — `deno` installed at `/opt/deno/bin/deno`
       (symlinked to `/usr/local/bin/deno`, readable by www-data).
-- [ ] **yt-dlp auto-update.** Weekly cron on the droplet (`pip install -U yt-dlp`); the
-      health check below is the safety net if an update breaks something.
-- [ ] **Health check / smoke test.** Daily cron runs a real fact-check (nocache) and emails
-      the admin if it fails — so breakage is caught immediately, not by users.
-- [ ] **Show dependency versions in admin** (yt-dlp / ffmpeg / PHP), warn when yt-dlp is old.
+- [x] **yt-dlp auto-update.** Weekly cron on the droplet (`/etc/cron.d/vfc-ytdlp-update`).
+- [x] **Health check / smoke test.** Daily cron runs a real fact-check and emails the admin
+      on failure (in the plugin's daily cron).
+- [x] **Show dependency versions in admin** — Settings → “System information”.
 - [ ] **OS updates.** Patch the Ubuntu droplet on a regular cadence. `deno` was installed
       manually — re-provisioning must reinstall it.
+
+## Cost reduction (deferred)
+
+- [ ] **InnerTube captions for YouTube (no proxy).** Suggested in issue #1 (thanks @rmoriz):
+      fetch YouTube captions via YouTube's internal InnerTube API (e.g.
+      [youtube-caption-extractor](https://github.com/devhims/youtube-caption-extractor)) —
+      no proxy, no Whisper. **Deferred:** only helps YouTube videos that *have* captions,
+      auto-captions are lower quality, and it adds a fragile internal-API dependency (needs a
+      PHP port). With the proxy now audio-only and cheap, the saving is small. Revisit if
+      volume grows or proxy costs/reliability worsen. (Note: the earlier yt-dlp `--write-subs`
+      approach failed via the proxy with 429s; InnerTube is a different, direct path.)
 
 ## Fact-check quality
 
