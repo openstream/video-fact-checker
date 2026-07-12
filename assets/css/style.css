@@ -247,3 +247,10 @@
 .site-footer .site-title::after {
     content: '\00b7' !important;
 }
+
+/* Twenty Sixteen renders the primary menu a second time inside the footer (shown
+   on small screens). We only want it in the header, so hide the footer copy. */
+.site-footer .main-navigation,
+.site-footer .site-header-menu {
+    display: none !important;
+}
