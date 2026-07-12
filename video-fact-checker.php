@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.10.2
+ * Version: 0.10.3
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.10.2');
+define('VFC_VERSION', '0.10.3');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 7);
 
@@ -120,45 +120,77 @@ function vfc_enqueue_scripts() {
 }
 add_action('wp_enqueue_scripts', 'vfc_enqueue_scripts');
 
-// Show the plugin version right after the site title in the footer, site-wide.
-// The Twenty Sixteen footer prints the site name inside .site-info right after
-// firing `twentysixteen_credits`. We flip a flag when that action fires, then a
-// one-shot `bloginfo` filter appends the version to that very next name output.
-// Uses the theme's official hook + the core `bloginfo` filter — no theme edit needed.
+// Customize the Twenty Sixteen footer credit. The theme renders, in .site-info:
+//   [twentysixteen_credits hook]
+//   <span class="site-title"><a href="{home_url}" rel="home">{site name}</a></span>
+//   {privacy link}  <a class="imprint">Proudly powered by WordPress</a>
+//
+// We want:  Home · {Site Name vX (Beta)} → GitHub tag · model: … · How It Works ·
+//           Roadmap · Privacy · Made by Openstream …
+//
+// Clean approach (no unbalanced-tag hacks):
+//  - In the credits hook (fires BEFORE the site title) we print, in order: a "Home"
+//    link, then our info links, then the "model:" text. These are complete elements.
+//  - A `home_url` filter, active only during the credits, points the site-title link
+//    at the current GitHub release tag instead of home.
+//  - A one-shot `bloginfo('name')` filter appends the version to the site name, so
+//    "Site Name vX (Beta)" is the GitHub-linked text.
 add_action('twentysixteen_credits', function() {
+    // Print the leading "Home" link, our info-page links, and the model note.
+    // (These render before the site-title span.)
+    $out = sprintf(
+        '<a href="%s" class="vfc-footer-home">Home</a>',
+        esc_url(home_url('/'))
+    );
+
+    foreach ([
+        ['how-it-works', 'How It Works', 'vfc-footer-howitworks'],
+        ['roadmap', 'Roadmap', 'vfc-footer-roadmap'],
+    ] as $item) {
+        list($slug, $label, $class) = $item;
+        $page = get_page_by_path($slug);
+        if ($page) {
+            $out .= sprintf(
+                '<span role="separator" aria-hidden="true"></span><a href="%s" class="%s">%s</a>',
+                esc_url(get_permalink($page)),
+                esc_attr($class),
+                esc_html($label)
+            );
+        }
+    }
+
+    // Model shown as plain text (not linked).
+    $model = get_option('vfc_openai_model', 'gpt-4o-mini');
+    $cutoff = VideoFactChecker\CostCalculator::cutoff_for($model);
+    $model_label = $model . ($cutoff ? ' (cutoff ' . $cutoff . ')' : '');
+    $out .= '<span class="vfc-footer-model" role="separator" aria-hidden="true"></span>'
+        . '<span class="vfc-footer-model-text">model: ' . esc_html($model_label) . '</span>'
+        . '<span role="separator" aria-hidden="true"></span>';
+
+    echo $out;
+
+    // From here until the site title is printed, point home_url at the GitHub tag,
+    // and arm the one-shot version-append on the site name.
+    $GLOBALS['vfc_in_footer_credits'] = true;
     $GLOBALS['vfc_append_version_to_name'] = true;
 });
 
+// Point the site-title link (only in the footer credits) to the GitHub release tag.
+add_filter('home_url', function($url) {
+    if (!empty($GLOBALS['vfc_in_footer_credits'])) {
+        $ver = defined('VFC_VERSION') ? VFC_VERSION : '';
+        return 'https://github.com/openstream/video-fact-checker/releases/tag/v' . rawurlencode($ver);
+    }
+    return $url;
+}, 10, 1);
+
 add_filter('bloginfo', function($output, $show) {
     if ($show === 'name' && !empty($GLOBALS['vfc_append_version_to_name'])) {
-        // One-shot: only the footer's site-title occurrence.
+        // One-shot: only the footer's site-title occurrence. Also stop rewriting
+        // home_url now that the site-title link has been built.
         $GLOBALS['vfc_append_version_to_name'] = false;
-        $model = get_option('vfc_openai_model', 'gpt-4o-mini');
-        $cutoff = VideoFactChecker\CostCalculator::cutoff_for($model);
-        $model_label = $model . ($cutoff ? ' (cutoff ' . $cutoff . ')' : '');
-        $version = sprintf(
-            ' <span class="vfc-footer-version">v%s (Beta) · model: %s</span>',
-            esc_html(defined('VFC_VERSION') ? VFC_VERSION : ''),
-            esc_html($model_label)
-        );
-        // Footer links to our info pages, if they exist.
-        $links = '';
-        foreach ([
-            ['how-it-works', 'How It Works', 'vfc-footer-howitworks'],
-            ['roadmap', 'Roadmap', 'vfc-footer-roadmap'],
-        ] as $item) {
-            list($slug, $label, $class) = $item;
-            $page = get_page_by_path($slug);
-            if ($page) {
-                $links .= sprintf(
-                    '<span role="separator" aria-hidden="true"></span><a href="%s" class="%s">%s</a>',
-                    esc_url(get_permalink($page)),
-                    esc_attr($class),
-                    esc_html($label)
-                );
-            }
-        }
-        $output .= $version . $links;
+        $GLOBALS['vfc_in_footer_credits'] = false;
+        $output .= sprintf(' v%s (Beta)', esc_html(defined('VFC_VERSION') ? VFC_VERSION : ''));
     }
     return $output;
 }, 10, 2);
