@@ -160,13 +160,13 @@ class Admin {
         echo '<table class="widefat striped" style="min-width:1000px;"><thead><tr>';
         echo '<th>Date</th>';
         echo '<th>Platform</th>';
+        echo '<th>Country</th>';
         echo '<th>Title / Summary</th>';
         echo '<th>Video</th>';
         echo '<th>Short URL</th>';
         echo '<th>Transcript Size</th>';
         echo '<th>Cost</th>';
         echo '<th>Analysis Summary</th>';
-        echo '<th>Fact Check</th>';
         echo '</tr></thead><tbody>';
         foreach ($items as $row) {
             $video_url_raw = is_string($row->video_url) ? $row->video_url : '';
@@ -181,6 +181,18 @@ class Admin {
             $platform_cell = '<span style="display:inline-flex;align-items:center;gap:6px;">'
                 . PlatformIcon::svg($platform_slug, 20)
                 . '<span>' . esc_html($platform_label) . '</span></span>';
+
+            // Country of the request (flag + code), '—' when unknown/historical.
+            $country_code = isset($row->country_code) ? strtoupper((string) $row->country_code) : '';
+            if ($country_code !== '') {
+                $flag = Geo::flag_emoji($country_code);
+                $name = Geo::country_name($country_code);
+                $country_cell = '<span title="' . esc_attr($name) . '" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">'
+                    . ($flag !== '' ? '<span style="font-size:18px;line-height:1;">' . esc_html($flag) . '</span>' : '')
+                    . '<span>' . esc_html($country_code) . '</span></span>';
+            } else {
+                $country_cell = '<span style="color:#999;">—</span>';
+            }
 
             // One-glance descriptor: video title, or a short summary of the analysis.
             $descriptor = PlatformIcon::describe(
@@ -229,6 +241,7 @@ class Admin {
             echo '<tr>';
             echo '<td>' . $created . '</td>';
             echo '<td>' . $platform_cell . '</td>';
+            echo '<td>' . $country_cell . '</td>';
             echo '<td>' . $descriptor_cell . '</td>';
             echo '<td>'
                 . '<button class="button button-small" onclick="window.open(\'' . $video_url . '\', \'_blank\')">Open</button>'
@@ -242,7 +255,6 @@ class Admin {
             echo '<td>' . esc_html($transcript_label) . '</td>';
             echo '<td>' . $cost_cell . '</td>';
             echo '<td>' . $summary_html . '</td>';
-            echo '<td><a href="' . esc_url($public_url) . '" target="_blank" rel="noopener">Open fact check</a></td>';
             echo '</tr>';
         }
         echo '</tbody></table>';

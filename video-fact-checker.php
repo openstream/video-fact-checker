@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.12.4
+ * Version: 0.13.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,9 +31,9 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.12.4');
+define('VFC_VERSION', '0.13.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 8);
+define('VFC_DB_VERSION', 9);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -343,13 +343,21 @@ function vfc_template_redirect() {
         // Debug the exact short URL being looked up
         $logger->log("Looking up exact short URL: '" . $short_url . "'");
         
-        // Remove admin bar
-        add_filter('show_admin_bar', '__return_false');
-        
+        // This is a real, resolvable page — serve 200, not the default 404 that the
+        // (unmatched) main query would otherwise imply, and give it a proper title.
+        status_header(200);
+        global $wp_query;
+        if ($wp_query instanceof \WP_Query) {
+            $wp_query->is_404 = false;
+        }
+        add_filter('pre_get_document_title', function() {
+            return 'Video Fact Check Results · ' . get_bloginfo('name');
+        });
+
         // Load the shared result
         $content = do_shortcode("[video_fact_checker_result url_id='" . esc_attr($short_url) . "']");
-        
-        // Include the template
+
+        // Render inside the site theme (header nav + footer credit).
         require plugin_dir_path(__FILE__) . 'templates/shared-page.php';
         exit;
     }

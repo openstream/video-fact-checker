@@ -49,6 +49,10 @@ class Ajax {
 
             $raw_url = sanitize_text_field($_POST['url']);
             $original_url = $raw_url;
+
+            // Capture the requester's country now, from the live request's IP.
+            // Best-effort; '' when it can't be resolved (see Geo). Stored per run.
+            $country_code = Geo::current_country_code();
             
             // Check for nocache parameter and remove it from the URL
             $nocache = false;
@@ -167,6 +171,10 @@ class Ajax {
             $used_model = $this->fact_checker->get_used_model();
             if ($used_model !== '') {
                 $metrics['used_model'] = $used_model;
+            }
+            // Record the requester's country (best-effort; may be '').
+            if ($country_code !== '') {
+                $metrics['country_code'] = $country_code;
             }
 
             // Cache result (unless nocache is requested)
