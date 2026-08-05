@@ -264,21 +264,21 @@ class YouTubeCaptions {
     /* ---- tiny HTTP helpers (curl, so we can route through a proxy) ---- */
 
     private function http_post_json($url, $body, $headers, $proxy) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        $ch = \curl_init();
+        \curl_setopt($ch, CURLOPT_URL, $url);
+        \curl_setopt($ch, CURLOPT_POST, true);
+        \curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        \curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        \curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        \curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        \curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         if ($proxy) {
-            curl_setopt($ch, CURLOPT_PROXY, $proxy);
+            \curl_setopt($ch, CURLOPT_PROXY, $proxy);
         }
-        $resp = curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = curl_error($ch);
-        curl_close($ch);
+        $resp = \curl_exec($ch);
+        $code = \curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = \curl_error($ch);
+        \curl_close($ch);
 
         if ($resp === false) {
             $this->logger->log("InnerTube POST curl error: " . $err, 'error');
@@ -293,20 +293,20 @@ class YouTubeCaptions {
     }
 
     private function http_get($url, $proxy) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        $ch = \curl_init();
+        \curl_setopt($ch, CURLOPT_URL, $url);
+        \curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        \curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        \curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         // A browser-ish UA; timedtext can be picky about empty UAs.
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (compatible; VideoFactChecker/1.0)');
+        \curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (compatible; VideoFactChecker/1.0)');
         if ($proxy) {
-            curl_setopt($ch, CURLOPT_PROXY, $proxy);
+            \curl_setopt($ch, CURLOPT_PROXY, $proxy);
         }
-        $resp = curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = curl_error($ch);
-        curl_close($ch);
+        $resp = \curl_exec($ch);
+        $code = \curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = \curl_error($ch);
+        \curl_close($ch);
 
         if ($resp === false) {
             $this->logger->log("InnerTube GET curl error: " . $err, 'error');
