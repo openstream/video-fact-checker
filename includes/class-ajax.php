@@ -172,6 +172,11 @@ class Ajax {
             if ($used_model !== '') {
                 $metrics['used_model'] = $used_model;
             }
+            // Store the ≤160-char summary for the share page's meta description.
+            $meta_description = $this->fact_checker->get_last_meta_description();
+            if ($meta_description !== '') {
+                $metrics['meta_description'] = $meta_description;
+            }
             // Record the requester's country (best-effort; may be '').
             if ($country_code !== '') {
                 $metrics['country_code'] = $country_code;

@@ -11,6 +11,9 @@ class FactChecker {
     // Usage from the last check_facts() call, for cost accounting.
     private $last_prompt_tokens = 0;
     private $last_completion_tokens = 0;
+    // ≤160-char summary of the last analysis, used as the share page's meta
+    // description (WhatsApp/social preview). '' when the model omitted it.
+    private $last_meta_description = '';
 
     public function __construct() {
         $this->api_key = get_option('vfc_openai_api_key');
@@ -21,6 +24,8 @@ class FactChecker {
 
     public function get_last_prompt_tokens() { return $this->last_prompt_tokens; }
     public function get_last_completion_tokens() { return $this->last_completion_tokens; }
+    /** ≤160-char summary of the last analysis for the share page's meta description ('' if none). */
+    public function get_last_meta_description() { return $this->last_meta_description; }
     public function get_model() { return $this->model; }
     /** The model that actually produced the last result (may be the fallback). */
     public function get_used_model() { return $this->used_model !== '' ? $this->used_model : $this->model; }
@@ -39,6 +44,7 @@ class FactChecker {
         $this->last_prompt_tokens = 0;
         $this->last_completion_tokens = 0;
         $this->used_model = '';
+        $this->last_meta_description = '';
 
         $prompt = "Please fact check the following text and provide a detailed analysis. " .
                   "Highlight any claims that are verifiable and indicate their accuracy. " .
@@ -60,11 +66,124 @@ class FactChecker {
             $content = $this->request_analysis($model, $prompt, $last_error);
             if ($content !== '') {
                 $this->used_model = $model;
+                // Pull the leading "META: …" line (the model's own ≤160-char
+                // summary) out of the raw text before rendering, so it never
+                // shows up in the visible analysis.
+                $content = $this->extract_meta_description($content);
                 return $this->format_response($content);
             }
         }
 
         throw new \Exception('The fact-check could not be generated. ' . $last_error);
+    }
+
+    /**
+     * Pull the model's leading "META: <summary>" line out of the raw analysis,
+     * store it (trimmed to ≤160 chars at a word boundary) in
+     * $last_meta_description, and return the content with that line removed.
+     * If there is no META line, the content is returned unchanged.
+     */
+    private function extract_meta_description($content) {
+        if (!preg_match('/^\s*META:\s*(.+?)\s*$/mi', $content, $m, PREG_OFFSET_CAPTURE)) {
+            return $content;
+        }
+        // Only treat it as the meta line when it is at the very top of the answer
+        // (allow leading blank lines), so a stray "META:" mid-text is left alone.
+        if (strlen(trim(substr($content, 0, $m[0][1]))) !== 0) {
+            return $content;
+        }
+
+        $summary = trim(wp_strip_all_tags($m[1][0]));
+        if (function_exists('mb_strlen') && mb_strlen($summary) > 160) {
+            $summary = rtrim(mb_substr($summary, 0, 157));
+            // Trim back to the last word boundary, then add an ellipsis.
+            $summary = preg_replace('/\s+\S*$/u', '', $summary);
+            $summary .= '…';
+        } elseif (!function_exists('mb_strlen') && strlen($summary) > 160) {
+            $summary = rtrim(substr($summary, 0, 157)) . '…';
+        }
+        $this->last_meta_description = $summary;
+
+        // Remove the whole META line (and any blank line right after it).
+        $stripped = substr($content, 0, $m[0][1]) . substr($content, $m[0][1] + strlen($m[0][0]));
+        return ltrim($stripped, "\r\n");
+    }
+
+    /**
+     * Build a table of contents for a rendered analysis: parse its section
+     * headings, give each a stable id, and return [$toc_html, $html_with_ids].
+     *
+     * The section heading level depends on the Markdown renderer: Parsedown
+     * turns "## " into <h2>, while the built-in fallback converter turns it into
+     * <h3>. So we don't hardcode a level — we build the TOC from the SHALLOWEST
+     * heading level present (h2 if any, else h3, else h4), which is where the
+     * fixed top-level sections land in either case.
+     *
+     * $toc_html is '' when there are fewer than two such headings (a TOC with a
+     * single entry adds noise, not navigation). The returned HTML always has
+     * the ids applied so in-page anchors work even without a rendered TOC.
+     */
+    public static function build_toc($analysis_html) {
+        $analysis_html = (string) $analysis_html;
+        if (!preg_match('/<h[2-4]\b/i', $analysis_html)) {
+            return ['', $analysis_html];
+        }
+
+        $dom = new \DOMDocument();
+        // Load as a UTF-8 fragment without letting libxml inject <html>/<body>
+        // wrappers or choke on HTML5 tags.
+        $prev = libxml_use_internal_errors(true);
+        $dom->loadHTML(
+            '<?xml encoding="UTF-8"><div id="vfc-root">' . $analysis_html . '</div>',
+            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+
+        // Use the shallowest heading level that actually appears.
+        $headings = null;
+        foreach (['h2', 'h3', 'h4'] as $tag) {
+            $found = $dom->getElementsByTagName($tag);
+            if ($found->length > 0) {
+                $headings = $found;
+                break;
+            }
+        }
+        if ($headings === null || $headings->length < 2) {
+            return ['', $analysis_html];
+        }
+
+        $items = [];
+        $i = 0;
+        // Snapshot the live NodeList before mutating attributes (setAttribute on a
+        // live list is fine, but iterate over a copy to be safe).
+        $nodes = [];
+        foreach ($headings as $h) { $nodes[] = $h; }
+        foreach ($nodes as $h) {
+            $i++;
+            $id = 'vfc-sec-' . $i;
+            $h->setAttribute('id', $id);
+            $items[] = [
+                'id'    => $id,
+                'title' => trim($h->textContent),
+            ];
+        }
+
+        // Re-serialize just the inner HTML of #vfc-root.
+        $root = $dom->getElementById('vfc-root');
+        $html_with_ids = '';
+        foreach ($root->childNodes as $child) {
+            $html_with_ids .= $dom->saveHTML($child);
+        }
+
+        $links = '';
+        foreach ($items as $it) {
+            $links .= '<li><a href="#' . esc_attr($it['id']) . '">'
+                . esc_html($it['title']) . '</a></li>';
+        }
+        $toc_html = '<nav class="vfc-toc" aria-label="Contents"><ol>' . $links . '</ol></nav>';
+
+        return [$toc_html, $html_with_ids];
     }
 
     /**
@@ -80,7 +199,17 @@ class FactChecker {
                     'role' => 'system',
                     'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. You answer in the language of the transcript. '
                         . 'Format your answer as readable prose with short paragraphs and, where helpful, bullet lists. '
-                        . 'Do NOT use tables or any tabular/columnar layout — the results are read on mobile screens where tables do not fit.'
+                        . 'Do NOT use tables or any tabular/columnar layout — the results are read on mobile screens where tables do not fit. '
+                        . "\n\n"
+                        . 'Structure the analysis with EXACTLY these four second-level Markdown headings (lines starting with "## "), in this order, translating the heading titles into the language of the transcript: '
+                        . '"## Kurzfazit" (1–2 sentences: the overall verdict), '
+                        . '"## Geprüfte Behauptungen" (each checked claim as a bullet: the claim, then whether it is true / partly true / false / unverifiable, with a brief reason), '
+                        . '"## Einordnung & Kontext" (relevant background and nuance), '
+                        . '"## Fazit" (a short closing takeaway). '
+                        . 'Use "## " for these section headings and never use a single "#". Do not add other top-level sections. '
+                        . "\n\n"
+                        . 'Before the analysis, output ONE first line of the form "META: <summary>", where <summary> is a neutral, self-contained overview of the fact-check result in at most 160 characters, in the language of the transcript. '
+                        . 'This META line is metadata for link previews — put nothing else on that line and do not repeat it in the body.'
                 ],
                 [
                     'role' => 'user',

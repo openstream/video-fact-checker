@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.13.0
+ * Version: 0.14.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,9 +31,9 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.13.0');
+define('VFC_VERSION', '0.14.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 9);
+define('VFC_DB_VERSION', 10);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -133,7 +133,7 @@ add_action('wp_enqueue_scripts', 'vfc_enqueue_scripts');
 // - A one-shot `bloginfo('name')` filter appends the version inside that link, then
 //   closes it and emits "powered by <model>" as plain (unlinked) text.
 add_action('twentysixteen_credits', function() {
-    // Nav links (Home / How It Works / Roadmap) now live in the header menu, not
+    // Nav links (Home / How It Works) now live in the header menu, not
     // here. The footer shows: "{Site Name vX (Beta)} → GitHub · powered by <model>
     // (cutoff …) · Privacy · Made by Openstream …".
     // The site title is printed by the theme right after this hook; we point its
@@ -354,6 +354,14 @@ function vfc_template_redirect() {
             return 'Video Fact Check Results · ' . get_bloginfo('name');
         });
 
+        // Fetch the result once for the social/meta tags. The shortcode below
+        // fetches it again for rendering; the extra read is cheap and keeps the
+        // template self-contained.
+        $vfc_meta_result = (new VideoFactChecker\CacheManager())->get_by_short_url($short_url);
+        if ($vfc_meta_result) {
+            vfc_emit_share_meta_tags($vfc_meta_result, home_url('/share/' . $short_url . '/'));
+        }
+
         // Load the shared result
         $content = do_shortcode("[video_fact_checker_result url_id='" . esc_attr($short_url) . "']");
 
@@ -363,6 +371,72 @@ function vfc_template_redirect() {
     }
 }
 add_action('template_redirect', 'vfc_template_redirect');
+
+/**
+ * Feed the share page's title + description to the SEO/meta layer so link
+ * previews (WhatsApp, Slack, X, …) show a real title and a one-line summary.
+ *
+ * The /share/ route resolves to no WP post, so an SEO plugin would otherwise
+ * emit a generic site-wide description. Rank Math is active here, and its
+ * `rank_math/frontend/{title,description}` filters flow into the plain
+ * <meta name="description"> AND the Open Graph / Twitter tags — so hooking
+ * those two gives correct previews with no duplicated tags. If Rank Math is
+ * absent, we fall back to echoing the tags ourselves on wp_head.
+ *
+ * Description precedence: the stored model-written meta_description, else a
+ * fallback derived from the readable text of the analysis (results stored
+ * before the meta_description column existed). Trimmed to ≤160 characters.
+ */
+function vfc_emit_share_meta_tags($result, $canonical_url) {
+    $descriptor = \VideoFactChecker\PlatformIcon::describe(
+        isset($result->video_title) ? $result->video_title : '',
+        isset($result->analysis) ? $result->analysis : '',
+        90
+    );
+    $title = ($descriptor !== '')
+        ? ('Fact check: ' . $descriptor)
+        : 'Video Fact Check Results';
+
+    $description = isset($result->meta_description) ? trim((string) $result->meta_description) : '';
+    if ($description === '') {
+        // Fallback for results stored before meta_description existed. Decode any
+        // HTML entities first so a stored "&#039;" doesn't leak into the preview.
+        // Some legacy rows also contain a corrupted "&039;" (a historical
+        // converter dropped the '#'); repair that before decoding.
+        $text = wp_strip_all_tags((string) ($result->analysis ?? ''));
+        $text = preg_replace('/&(\d+);/', '&#$1;', $text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = trim(preg_replace('/\s+/u', ' ', $text));
+        if (function_exists('mb_strlen') && mb_strlen($text) > 160) {
+            $text = rtrim(mb_substr($text, 0, 157));
+            $text = preg_replace('/\s+\S*$/u', '', $text) . '…';
+        } elseif (strlen($text) > 160) {
+            $text = rtrim(substr($text, 0, 157)) . '…';
+        }
+        $description = $text;
+    }
+
+    // Preferred path: let the SEO plugin render the tags from our values.
+    if (defined('RANK_MATH_VERSION') || class_exists('RankMath\\Helper')) {
+        add_filter('rank_math/frontend/title', function () use ($title) { return $title; });
+        add_filter('rank_math/frontend/description', function () use ($description) { return $description; });
+        add_filter('rank_math/opengraph/type', function () { return 'article'; });
+        return;
+    }
+
+    // Fallback: no SEO plugin — emit the tags directly.
+    add_action('wp_head', function () use ($title, $description, $canonical_url) {
+        $out  = '<meta name="description" content="' . esc_attr($description) . '">' . "\n";
+        $out .= '<meta property="og:type" content="article">' . "\n";
+        $out .= '<meta property="og:title" content="' . esc_attr($title) . '">' . "\n";
+        $out .= '<meta property="og:description" content="' . esc_attr($description) . '">' . "\n";
+        $out .= '<meta property="og:url" content="' . esc_url($canonical_url) . '">' . "\n";
+        $out .= '<meta name="twitter:card" content="summary">' . "\n";
+        $out .= '<meta name="twitter:title" content="' . esc_attr($title) . '">' . "\n";
+        $out .= '<meta name="twitter:description" content="' . esc_attr($description) . '">' . "\n";
+        echo $out;
+    }, 1);
+}
 
 // Add shortcode handler if it doesn't exist
 function vfc_shared_result_shortcode($atts) {

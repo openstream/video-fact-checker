@@ -1,5 +1,9 @@
 # Roadmap — Video Fact Checker
 
+> **Internal document — not publicly linked.** This is a developer-facing idea backlog; it is
+> intentionally not exposed in the site navigation. (The public "Roadmap" nav item and page were
+> removed once the plugin stopped being aimed at third-party installs.)
+
 Ideas and directions for the tool. Nothing here is committed to a delivery date; it
 captures possible features and the reasoning behind them.
 

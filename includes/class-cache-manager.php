@@ -56,6 +56,7 @@ class CacheManager {
 
         // Append any provided metrics with the correct format specifiers.
         $metric_formats = [
+            'meta_description' => '%s',
             'video_title' => '%s',
             'used_model' => '%s',
             'platform' => '%s',
@@ -99,6 +100,7 @@ class CacheManager {
             short_url varchar(10) NOT NULL,
             transcription longtext,
             analysis longtext,
+            meta_description varchar(200) DEFAULT NULL,
             video_title varchar(500) DEFAULT NULL,
             used_model varchar(50) DEFAULT NULL,
             platform varchar(20) DEFAULT NULL,

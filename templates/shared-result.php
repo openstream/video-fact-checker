@@ -6,6 +6,13 @@ $vfc_descriptor = \VideoFactChecker\PlatformIcon::describe(
     isset($result->analysis) ? $result->analysis : '',
     200
 );
+
+// Build a table of contents from the analysis headings and get the analysis
+// HTML back with anchor ids applied. $vfc_toc is '' when there are too few
+// headings to bother with a TOC.
+list($vfc_toc, $vfc_analysis_html) = \VideoFactChecker\FactChecker::build_toc(
+    isset($result->analysis) ? $result->analysis : ''
+);
 ?>
 <div class="video-fact-checker-result">
     <div class="video-info">
@@ -16,13 +23,16 @@ $vfc_descriptor = \VideoFactChecker\PlatformIcon::describe(
         <p>Fact checked on: <?php echo esc_html(date('F j, Y', strtotime($result->created_at))); ?></p>
     </div>
 
-    <div id="transcription-result">
-        <h3>Video Transcription</h3>
-        <div class="content"><?php echo nl2br(esc_html($result->transcription)); ?></div>
-    </div>
-
     <div id="analysis-result">
         <h3>Fact Check Analysis</h3>
-        <div class="content"><?php echo wp_kses_post($result->analysis); ?></div>
+        <?php if ($vfc_toc !== '') : ?>
+        <?php echo $vfc_toc; // built from trusted headings, already escaped ?>
+        <?php endif; ?>
+        <div class="content"><?php echo wp_kses_post($vfc_analysis_html); ?></div>
     </div>
-</div> 
+
+    <details id="transcription-result" class="vfc-transcript">
+        <summary>Video Transcription</summary>
+        <div class="content"><?php echo nl2br(esc_html($result->transcription)); ?></div>
+    </details>
+</div>
