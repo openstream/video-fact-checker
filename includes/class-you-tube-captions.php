@@ -261,60 +261,106 @@ class YouTubeCaptions {
         return $manual ?: ($asr ?: $tracks[0]);
     }
 
-    /* ---- tiny HTTP helpers (curl, so we can route through a proxy) ---- */
+    /* ---- HTTP helpers ----
+     *
+     * Direct (no-proxy) requests go through WordPress's HTTP API (wp_remote_*),
+     * which works whichever transport is available and does NOT require the PHP
+     * curl extension in the current SAPI (prod's php-cli has no curl; php-fpm,
+     * where real requests run, does). WP's HTTP layer can't apply a per-request
+     * proxy (WP_Http_Proxy is driven by global constants), so the proxy path
+     * uses curl's CURLOPT_PROXY directly — available in the php-fpm request
+     * context where stage 2 actually runs. */
 
     private function http_post_json($url, $body, $headers, $proxy) {
-        $ch = \curl_init();
-        \curl_setopt($ch, CURLOPT_URL, $url);
-        \curl_setopt($ch, CURLOPT_POST, true);
-        \curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-        \curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        \curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        \curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-        \curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         if ($proxy) {
-            \curl_setopt($ch, CURLOPT_PROXY, $proxy);
+            return $this->curl_request('POST', $url, $headers, $body, $proxy, true);
         }
-        $resp = \curl_exec($ch);
-        $code = \curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = \curl_error($ch);
-        \curl_close($ch);
-
-        if ($resp === false) {
-            $this->logger->log("InnerTube POST curl error: " . $err, 'error');
+        $header_map = [];
+        foreach ($headers as $h) {
+            $pos = strpos($h, ':');
+            if ($pos !== false) {
+                $header_map[trim(substr($h, 0, $pos))] = trim(substr($h, $pos + 1));
+            }
+        }
+        $response = wp_remote_post($url, [
+            'headers'     => $header_map,
+            'body'        => $body,
+            'timeout'     => 15,
+            'redirection' => 2,
+        ]);
+        if (is_wp_error($response)) {
+            $this->logger->log("InnerTube POST error: " . $response->get_error_message(), 'error');
             return null;
         }
-        if ((int) $code !== 200) {
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
             $this->logger->log("InnerTube POST HTTP {$code}", 'error');
             return null;
         }
-        $data = json_decode($resp, true);
+        $data = json_decode(wp_remote_retrieve_body($response), true);
         return is_array($data) ? $data : null;
     }
 
     private function http_get($url, $proxy) {
+        if ($proxy) {
+            $raw = $this->curl_request('GET', $url, ['User-Agent: Mozilla/5.0 (compatible; VideoFactChecker/1.0)'], null, $proxy, false);
+            return $raw;
+        }
+        $response = wp_remote_get($url, [
+            // A browser-ish UA; timedtext can be picky about empty UAs.
+            'headers'     => ['User-Agent' => 'Mozilla/5.0 (compatible; VideoFactChecker/1.0)'],
+            'timeout'     => 15,
+            'redirection' => 2,
+        ]);
+        if (is_wp_error($response)) {
+            $this->logger->log("InnerTube GET error: " . $response->get_error_message(), 'error');
+            return null;
+        }
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            $this->logger->log("InnerTube GET HTTP {$code}", 'error');
+            return null;
+        }
+        return (string) wp_remote_retrieve_body($response);
+    }
+
+    /**
+     * curl request routed through $proxy. Used only for the proxy path (stage 2),
+     * which runs in the php-fpm request context where curl is available. Returns
+     * the decoded array for JSON, the raw body string otherwise, or null.
+     */
+    private function curl_request($method, $url, $headers, $body, $proxy, $decode_json) {
+        if (!function_exists('curl_init')) {
+            $this->logger->log("InnerTube proxy path needs curl, which isn't available in this SAPI", 'error');
+            return null;
+        }
         $ch = \curl_init();
         \curl_setopt($ch, CURLOPT_URL, $url);
         \curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         \curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         \curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        // A browser-ish UA; timedtext can be picky about empty UAs.
-        \curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (compatible; VideoFactChecker/1.0)');
-        if ($proxy) {
-            \curl_setopt($ch, CURLOPT_PROXY, $proxy);
+        \curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        \curl_setopt($ch, CURLOPT_PROXY, $proxy);
+        if ($method === 'POST') {
+            \curl_setopt($ch, CURLOPT_POST, true);
+            \curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
         }
         $resp = \curl_exec($ch);
         $code = \curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = \curl_error($ch);
+        $err  = \curl_error($ch);
         \curl_close($ch);
 
         if ($resp === false) {
-            $this->logger->log("InnerTube GET curl error: " . $err, 'error');
+            $this->logger->log("InnerTube {$method} (proxy) curl error: " . $err, 'error');
             return null;
         }
         if ((int) $code !== 200) {
-            $this->logger->log("InnerTube GET HTTP {$code}", 'error');
+            $this->logger->log("InnerTube {$method} (proxy) HTTP {$code}", 'error');
             return null;
+        }
+        if ($decode_json) {
+            $data = json_decode($resp, true);
+            return is_array($data) ? $data : null;
         }
         return (string) $resp;
     }
