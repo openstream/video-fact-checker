@@ -11,6 +11,9 @@ class VideoProcessor {
     private $last_audio_seconds = 0.0;
     private $last_is_youtube = false;
     private $last_title = '';
+    // Video duration (seconds) learned during the last caption attempt, so the
+    // download-fallback length check doesn't need a second metadata request.
+    private $last_caption_duration = 0;
 
     public function __construct() {
         $this->logger = new Logger();
@@ -27,6 +30,126 @@ class VideoProcessor {
     public function get_last_audio_seconds() { return $this->last_audio_seconds; }
     public function get_last_is_youtube() { return $this->last_is_youtube; }
     public function get_last_title() { return $this->last_title; }
+
+    /**
+     * Try to get a YouTube transcript from captions (no audio download, no
+     * Whisper). Two stages: InnerTube direct, then — for videos YouTube refuses
+     * to serve from our datacenter IP (LOGIN_REQUIRED) — InnerTube through the
+     * residential proxy (only the small caption traffic goes through it).
+     *
+     * @return array{transcript:string,duration:int,title:string,source:string}
+     *         on success, or null when captions aren't available for this video
+     *         (the caller then decides about an audio-download fallback).
+     * @throws ProcessingException only for hard, user-facing failures.
+     */
+    public function try_youtube_captions($url) {
+        if (!(bool) get_option('vfc_youtube_use_innertube', true)) {
+            $this->logger->log("InnerTube disabled by setting; skipping caption path");
+            return null;
+        }
+        $video_id = YouTubeCaptions::extract_video_id($url);
+        if ($video_id === '') {
+            return null;
+        }
+
+        $captions = new YouTubeCaptions($this->logger);
+
+        // Stage 1: direct (no proxy).
+        try {
+            $r = $captions->fetch($video_id, null);
+            return $this->caption_result($r, 'innertube-direct');
+        } catch (ProcessingException $e) {
+            $tech = $e->get_technical();
+            // "Playable but no captions" is definitive — trying the proxy won't
+            // conjure subtitles. Signal the caller to consider audio download.
+            if (strpos($tech, 'NO_CAPTIONS') === 0) {
+                $this->last_caption_duration = $this->duration_from_technical($tech);
+                $this->last_title = $this->title_from_technical($tech) ?: $this->last_title;
+                $this->logger->log("InnerTube direct: no captions for {$video_id}");
+                return null;
+            }
+            // LOGIN_REQUIRED (or other datacenter refusal): try via proxy.
+            $this->logger->log("InnerTube direct failed ({$tech}); trying via proxy");
+        }
+
+        // Stage 2: through the residential proxy (if configured).
+        $proxy = $this->build_youtube_proxy();
+        if ($proxy === '') {
+            $this->logger->log("No proxy configured; cannot retry InnerTube via proxy");
+            return null;
+        }
+        try {
+            $r = $captions->fetch($video_id, $proxy);
+            return $this->caption_result($r, 'innertube-proxy');
+        } catch (ProcessingException $e) {
+            $tech = $e->get_technical();
+            if (strpos($tech, 'NO_CAPTIONS') === 0) {
+                $this->last_caption_duration = $this->duration_from_technical($tech);
+                $this->last_title = $this->title_from_technical($tech) ?: $this->last_title;
+                $this->logger->log("InnerTube proxy: no captions for {$video_id}");
+                return null;
+            }
+            // Even the proxy couldn't get captions — give up on the caption path;
+            // the caller falls back to audio download.
+            $this->logger->log("InnerTube proxy failed too ({$tech}); falling back to download");
+            return null;
+        }
+    }
+
+    /** Duration (seconds) discovered during the last caption attempt, if any. */
+    public function get_last_caption_duration() { return $this->last_caption_duration; }
+
+    private function caption_result($r, $source) {
+        // Record shared metrics so the AJAX layer reads them uniformly.
+        $this->last_audio_seconds = (float) $r['duration']; // used for Whisper cost = 0 anyway
+        $this->last_caption_duration = (int) $r['duration'];
+        $this->last_download_bytes = 0;
+        $this->last_is_youtube = true;
+        if (!empty($r['title'])) {
+            $this->last_title = mb_substr($r['title'], 0, 500);
+        }
+        $this->logger->log("Transcript via {$source} (duration={$r['duration']}s, no Whisper)");
+        return [
+            'transcript' => $r['transcript'],
+            'duration'   => (int) $r['duration'],
+            'title'      => isset($r['title']) ? $r['title'] : '',
+            'source'     => $source,
+        ];
+    }
+
+    private function duration_from_technical($tech) {
+        if (preg_match('/duration=(\d+)/', $tech, $m)) {
+            return (int) $m[1];
+        }
+        return 0;
+    }
+
+    private function title_from_technical($tech) {
+        if (preg_match('/title=(.*)$/s', $tech, $m)) {
+            return trim($m[1]);
+        }
+        return '';
+    }
+
+    /**
+     * Get a YouTube video's duration in seconds via yt-dlp --dump-json (used to
+     * enforce the audio-download length limit when captions aren't available).
+     * Returns 0 if it can't be determined.
+     */
+    public function get_video_duration_seconds($url) {
+        $command = $this->get_video_info($url); // builds a --dump-json command
+        $output = [];
+        $return_var = 0;
+        exec($command, $output, $return_var);
+        if ($return_var !== 0 || empty($output)) {
+            return 0;
+        }
+        $json = json_decode(implode("\n", $output), true);
+        if (is_array($json) && isset($json['duration']) && is_numeric($json['duration'])) {
+            return (int) round((float) $json['duration']);
+        }
+        return 0;
+    }
 
     /**
      * Read the audio duration (seconds) of a media file via ffprobe.
@@ -307,7 +430,16 @@ class VideoProcessor {
                 // Keep the raw output in the log for debugging, tied to the request id.
                 $this->logger->log("Download failed (exit {$return_var}): " . $error_output, 'error');
 
-                throw new \Exception($message);
+                // Carry the real reason (a concise error line) into the admin email
+                // via a structured exception, instead of a useless stack trace.
+                $stage = $this->last_is_youtube
+                    ? 'YouTube audio download (yt-dlp' . ($this->build_youtube_proxy() !== '' ? ' via proxy)' : ')')
+                    : 'Video download (yt-dlp)';
+                throw new ProcessingException(
+                    $message,
+                    $stage,
+                    $this->download_error_technical($error_output)
+                );
             }
 
             // Find the generated MP3 file
@@ -491,6 +623,44 @@ class VideoProcessor {
 
         // Fallback: generic, no raw output.
         return "This video couldn't be downloaded. Please check the link or try a different video.";
+    }
+
+    /**
+     * Distil yt-dlp's multi-line output down to the one line that actually
+     * explains the failure, for the admin email's "Reason". Prefers an ERROR:/
+     * WARNING: line, skips the ever-present Python-deprecation notice and
+     * progress/format noise, and adds a plain-language hint for the common 407.
+     */
+    private function download_error_technical($error_output) {
+        $error_output = (string) $error_output;
+        $lines = preg_split('/\r?\n/', $error_output);
+        $skip = function ($l) {
+            $l = trim($l);
+            if ($l === '') return true;
+            if (stripos($l, 'Deprecated Feature') !== false) return true;   // Python 3.10 notice
+            if (stripos($l, 'Support for Python') !== false) return true;
+            if (strpos($l, '[download]') === 0) return true;                 // progress bars
+            if (strpos($l, '[info]') === 0) return true;
+            return false;
+        };
+
+        // Prefer the yt-dlp ERROR: line, then WARNING:, then first meaningful line.
+        $error_line = ''; $warn_line = ''; $first = '';
+        foreach ($lines as $l) {
+            if ($skip($l)) continue;
+            $t = trim($l);
+            if ($first === '') { $first = $t; }
+            if ($error_line === '' && stripos($t, 'ERROR:') !== false) { $error_line = $t; }
+            if ($warn_line === '' && stripos($t, 'WARNING:') !== false) { $warn_line = $t; }
+        }
+        $reason = $error_line ?: ($warn_line ?: $first);
+        $reason = mb_substr($reason, 0, 300);
+
+        // Add a human hint for the classic proxy-balance/limit 407.
+        if (stripos($error_output, '407 Proxy Authentication Required') !== false) {
+            $reason .= "  [hint: Decodo proxy rejected auth — usually an exhausted balance/traffic limit, not a wrong password. Top up / check the Decodo balance.]";
+        }
+        return $reason !== '' ? $reason : 'yt-dlp exited non-zero with no parseable error line.';
     }
 
     /** First non-empty line of a multi-line string (for concise log messages). */

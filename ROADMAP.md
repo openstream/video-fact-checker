@@ -27,14 +27,15 @@ captures possible features and the reasoning behind them.
 
 ### Cost reduction
 
-- **InnerTube captions for YouTube (no proxy).** Suggested in issue #1 (thanks @rmoriz):
-  fetch YouTube captions via YouTube's internal InnerTube API (e.g.
-  [youtube-caption-extractor](https://github.com/devhims/youtube-caption-extractor)) —
-  no proxy, no Whisper. Trade-offs: only helps YouTube videos that *have* captions,
-  auto-captions are lower quality, and it adds a fragile internal-API dependency (needs a
-  PHP port). With the proxy now audio-only and cheap, the saving is small — revisit if
-  volume grows or proxy costs/reliability worsen. (The earlier yt-dlp `--write-subs`
-  approach failed via the proxy with 429s; InnerTube is a different, direct path.)
+- [x] **InnerTube captions for YouTube (no proxy).** Suggested in issue #1 (thanks @rmoriz).
+  Done in v0.15.0 (`class-you-tube-captions.php`): YouTube URLs first try captions via the
+  internal InnerTube player API (iOS → Android VR clients, json3 parsing). Staged fallback:
+  (1) InnerTube direct (no proxy, no Whisper) → (2) InnerTube via the residential proxy — for
+  videos YouTube refuses to serve from our datacenter IP (`LOGIN_REQUIRED`; the block is
+  per-video, not IP-wide) → (3) audio download + Whisper, but only if the video is within
+  `vfc_youtube_max_download_minutes` (default 20; 0 disables the download fallback). Toggle
+  `vfc_youtube_use_innertube` for a kill switch. Trade-offs remain: only helps videos that
+  *have* captions, and auto-captions are lower quality than Whisper.
 
 ### Spend control
 

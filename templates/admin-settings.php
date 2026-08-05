@@ -151,14 +151,62 @@
             </tr>
 
             <tr>
+                <th colspan="2"><h2 style="margin-top: 2em;">YouTube transcript</h2></th>
+            </tr>
+            <tr>
+                <td colspan="2">
+                    <p class="description">
+                        For YouTube, the plugin first tries to read the video's <strong>subtitles</strong> via
+                        YouTube's internal API (no proxy, no Whisper — much cheaper). Only if a video has no
+                        subtitles does it download the audio and transcribe it with Whisper.
+                    </p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">Use subtitles (InnerTube)</th>
+                <td>
+                    <?php $vfc_use_innertube = (bool) get_option('vfc_youtube_use_innertube', true); ?>
+                    <input type="hidden" name="vfc_youtube_use_innertube" value="0">
+                    <label>
+                        <input type="checkbox" id="vfc_youtube_use_innertube" name="vfc_youtube_use_innertube"
+                               value="1" <?php checked($vfc_use_innertube); ?>>
+                        Fetch YouTube subtitles via InnerTube before downloading audio
+                    </label>
+                    <p class="description">
+                        Recommended. Turn off only if YouTube changes its internal API and subtitle fetching breaks —
+                        the plugin then goes straight to the audio-download path.
+                    </p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="vfc_youtube_max_download_minutes">Max. audio-download length (minutes)</label>
+                </th>
+                <td>
+                    <input type="number" min="0" step="1"
+                           id="vfc_youtube_max_download_minutes"
+                           name="vfc_youtube_max_download_minutes"
+                           value="<?php echo esc_attr(get_option('vfc_youtube_max_download_minutes', 20)); ?>"
+                           class="small-text">
+                    <p class="description">
+                        When a YouTube video has <em>no</em> subtitles, its audio is downloaded (via proxy) and
+                        transcribed with Whisper — but only up to this length. Longer videos without subtitles are
+                        rejected with a clear message. Set to <code>0</code> to disable the audio-download fallback
+                        entirely (videos without subtitles are then always rejected).
+                    </p>
+                </td>
+            </tr>
+
+            <tr>
                 <th colspan="2"><h2 style="margin-top: 2em;">Proxy (YouTube only)</h2></th>
             </tr>
             <tr>
                 <td colspan="2">
                     <p class="description">
-                        For YouTube, the plugin will use a <code>cookies.txt</code> file located in the plugin directory
-                        (<code>wp-content/plugins/video-fact-checker/cookies.txt</code>). If there is no cookies.txt file,
-                        you need to configure and use a proxy.
+                        The proxy is used for YouTube: as a fallback when a video's subtitles can't be read from
+                        this server's IP, and for the audio-download path above. Without a proxy, YouTube falls back
+                        to a <code>cookies.txt</code> file in the plugin directory
+                        (<code>wp-content/plugins/video-fact-checker/cookies.txt</code>).
                     </p>
                 </td>
             </tr>

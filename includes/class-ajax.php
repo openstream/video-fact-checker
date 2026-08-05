@@ -132,27 +132,77 @@ class Ajax {
                 $this->logger->log("Skipping cache check due to nocache parameter");
             }
 
-            // Process video
-            $this->set_status('downloading');
-            $audio_file = $this->processor->download_video($url);
+            // Obtain a transcript. For YouTube we first try captions (InnerTube),
+            // which needs no audio download and no Whisper; only if that fails do
+            // we download the audio and transcribe it. Other platforms download
+            // and transcribe as before.
+            $transcription = null;
+            $used_captions = false;
+            $transcript_source = 'download+whisper';
 
-            $this->set_status('transcribing');
-            $transcription = $this->transcriber->transcribe($audio_file);
-
-            if (file_exists($audio_file)) {
-                unlink($audio_file);
+            if ($this->processor->is_youtube_url($url)) {
+                $this->set_status('downloading'); // shown as "fetching" to the user
+                $caption = $this->processor->try_youtube_captions($url);
+                if ($caption !== null && trim($caption['transcript']) !== '') {
+                    $transcription = $caption['transcript'];
+                    $used_captions = true;
+                    $transcript_source = $caption['source']; // innertube-direct | innertube-proxy
+                } else {
+                    // No captions: fall back to audio download + Whisper, but only
+                    // for videos within the configured length limit.
+                    $limit_min = (int) get_option('vfc_youtube_max_download_minutes', 20);
+                    $duration = $this->processor->get_last_caption_duration();
+                    if ($duration <= 0) {
+                        $duration = $this->processor->get_video_duration_seconds($url);
+                    }
+                    if ($limit_min <= 0) {
+                        throw new ProcessingException(
+                            "This YouTube video has no subtitles, so it can't be fact-checked automatically.",
+                            "YouTube: no captions, audio-download fallback disabled",
+                            "NO_CAPTIONS and vfc_youtube_max_download_minutes=0"
+                        );
+                    }
+                    if ($duration > 0 && $duration > $limit_min * 60) {
+                        $mins = floor($duration / 60);
+                        $secs = $duration % 60;
+                        throw new ProcessingException(
+                            sprintf("This YouTube video has no subtitles and is too long (%d:%02d) to transcribe automatically. Please try a shorter video (up to %d minutes).", $mins, $secs, $limit_min),
+                            "YouTube: no captions, over the {$limit_min}-min download limit",
+                            sprintf("NO_CAPTIONS and duration=%ds > limit=%ds", $duration, $limit_min * 60)
+                        );
+                    }
+                    $audio_file = $this->processor->download_video($url);
+                    $this->set_status('transcribing');
+                    $transcription = $this->transcriber->transcribe($audio_file);
+                    if (file_exists($audio_file)) {
+                        unlink($audio_file);
+                    }
+                }
+            } else {
+                $this->set_status('downloading');
+                $audio_file = $this->processor->download_video($url);
+                $this->set_status('transcribing');
+                $transcription = $this->transcriber->transcribe($audio_file);
+                if (file_exists($audio_file)) {
+                    unlink($audio_file);
+                }
             }
+
+            $this->logger->log("Transcript source: " . $transcript_source);
 
             $this->set_status('analyzing');
             $analysis = $this->fact_checker->check_facts($transcription);
 
-            // Compute per-run cost metrics from the measured usage.
+            // Compute per-run cost metrics from the measured usage. When captions
+            // were used there was no Whisper transcription, so bill 0 audio
+            // seconds regardless of the video's length.
             $calc = new CostCalculator();
+            $whisper_seconds = $used_captions ? 0 : $this->processor->get_last_audio_seconds();
             $metrics = $calc->build_metrics(
                 VideoProcessor::detect_platform($url), // e.g. youtube, tiktok, instagram
                 $this->fact_checker->get_last_prompt_tokens(),
                 $this->fact_checker->get_last_completion_tokens(),
-                $this->processor->get_last_audio_seconds(),
+                $whisper_seconds,
                 $this->processor->get_last_download_bytes(),
                 $this->processor->get_last_is_youtube(),
                 $this->fact_checker->get_model()
@@ -220,31 +270,49 @@ class Ajax {
             ]);
 
         } catch (\Exception $e) {
-            $this->logger->log("Error: " . $e->getMessage());
-            $this->logger->log("Stack trace: " . $e->getTraceAsString());
             // Ensure progress checker stops polling
             $this->set_status('error');
 
             $ref = $this->logger->getCurrentVideoId();
 
+            // Pull structured detail out of our own exceptions; for anything else
+            // fall back to the message and (as a last resort) the stack trace.
+            if ($e instanceof ProcessingException) {
+                $user_message = $e->get_user_message();
+                $stage        = $e->get_stage();
+                $technical    = $e->get_technical();
+            } else {
+                $user_message = $e->getMessage();
+                $stage        = '';
+                $technical    = '';
+            }
+
+            $this->logger->log("Error [{$stage}]: {$user_message}", 'error');
+            if ($technical !== '') {
+                $this->logger->log("Reason: {$technical}", 'error');
+            } else {
+                // Only keep the noisy trace when we have no better detail.
+                $this->logger->log("Stack trace: " . $e->getTraceAsString());
+            }
+
             // Notify the admin by email (de-duplicated inside the notifier).
             try {
                 $notifier = new Notifier($this->logger);
                 $notifier->notify_error(
-                    $e->getMessage(),
-                    $e->getTraceAsString(),
+                    $user_message,
+                    $technical !== '' ? $technical : $e->getTraceAsString(),
                     isset($url) ? $url : '',
-                    $ref
+                    $ref,
+                    $stage
                 );
             } catch (\Throwable $notifyError) {
                 $this->logger->log("Failed to send admin error mail: " . $notifyError->getMessage(), 'error');
             }
 
-            // Send minimal info to user, full details are in the log
-            $error_payload = [
-                'message' => $e->getMessage() . ' (Ref: ' . $ref . ')'
-            ];
-            wp_send_json_error($error_payload);
+            // Send the concise, human-friendly message to the user.
+            wp_send_json_error([
+                'message' => $user_message . ' (Ref: ' . $ref . ')'
+            ]);
         }
     }
 

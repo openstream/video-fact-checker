@@ -33,11 +33,14 @@ class Notifier {
      * Email the admin about a failed run. De-duplicated per error signature.
      *
      * @param string $user_message  The concise message shown to the user.
-     * @param string $raw_details   Full technical detail for the admin (not shown to users).
+     * @param string $raw_details   The real reason (yt-dlp/HTTP error line, proxy
+     *                              status, "no captions/too long", …) — NOT a stack
+     *                              trace. Shown to the admin only.
      * @param string $url           The video URL that failed (optional).
      * @param string $ref           The log reference id (optional).
+     * @param string $stage         Which step failed, in plain words (optional).
      */
-    public function notify_error($user_message, $raw_details = '', $url = '', $ref = '') {
+    public function notify_error($user_message, $raw_details = '', $url = '', $ref = '', $stage = '') {
         $to = $this->recipient();
         if (!$to || !is_email($to)) {
             return;
@@ -55,12 +58,11 @@ class Notifier {
         $subject = sprintf('[Video Fact Checker] Error on %s', $site);
 
         $body  = "A fact-check run failed.\n\n";
+        if ($stage !== '') { $body .= "What failed:\n  " . $stage . "\n\n"; }
+        if ($raw_details !== '') { $body .= "Reason:\n  " . $raw_details . "\n\n"; }
         $body .= "Message shown to user:\n  " . $user_message . "\n\n";
         if ($url !== '')   { $body .= "Video URL:\n  " . $url . "\n\n"; }
         if ($ref !== '')   { $body .= "Log reference:\n  " . $ref . "\n\n"; }
-        if ($raw_details !== '') {
-            $body .= "Technical details:\n" . $raw_details . "\n\n";
-        }
         $body .= "Time: " . current_time('Y-m-d H:i:s') . "\n";
         $body .= "Full log is mailed daily and stored at " . $this->logger->get_log_file() . "\n";
 

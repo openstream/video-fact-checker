@@ -34,6 +34,16 @@ class Admin {
         register_setting('vfc_settings', 'vfc_openai_fallback_model');
         register_setting('vfc_settings', 'vfc_output_format');
 
+        // YouTube caption/transcript strategy.
+        register_setting('vfc_settings', 'vfc_youtube_use_innertube', [
+            'type' => 'boolean',
+            'sanitize_callback' => [$this, 'sanitize_checkbox'],
+        ]);
+        register_setting('vfc_settings', 'vfc_youtube_max_download_minutes', [
+            'type' => 'integer',
+            'sanitize_callback' => [$this, 'sanitize_nonneg_int'],
+        ]);
+
         // Cost accounting: pricing rates (USD) and daily budget.
         // OpenAI chat pricing is derived from the selected model (CostCalculator::MODEL_PRICING),
         // so there are no manual chat-token fields here.
@@ -82,6 +92,18 @@ class Admin {
         $value = is_string($value) ? trim($value) : '';
         if ($value === '') return '';
         return is_email($value) ? $value : '';
+    }
+
+    /** Unchecked checkboxes aren't submitted, so absence means false. */
+    public function sanitize_checkbox($value) {
+        return !empty($value) ? 1 : 0;
+    }
+
+    /** Non-negative integer (0 allowed, e.g. "download fallback off"). */
+    public function sanitize_nonneg_int($value) {
+        if ($value === '' || $value === null || !is_numeric($value)) return 0;
+        $n = (int) $value;
+        return $n < 0 ? 0 : $n;
     }
 
     public function sanitize_proxy_address($value) {
