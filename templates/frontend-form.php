@@ -5,7 +5,7 @@
                    id="video-url"
                    name="video-url"
                    required
-                   placeholder="Enter video URL">
+                   placeholder="Video URL (must contain speech)">
         </div>
 
         <div class="form-actions">
