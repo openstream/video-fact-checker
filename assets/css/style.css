@@ -254,3 +254,69 @@
 .site-footer .site-header-menu {
     display: none !important;
 }
+
+/* -------------------------------------------------------------------------
+   "Recently fact-checked" list under the form on the home page.
+   ------------------------------------------------------------------------- */
+.vfc-recent {
+    margin: 32px 0 0;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+.vfc-recent-title {
+    font-size: 18px;
+    margin: 0 0 12px;
+}
+.vfc-recent-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.vfc-recent-item {
+    margin: 0;
+    border-bottom: 1px solid #f0f0ee;
+}
+.vfc-recent-item:last-child {
+    border-bottom: none;
+}
+.vfc-recent-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 4px;
+    text-decoration: none;
+    color: inherit;
+}
+.vfc-recent-link:hover,
+.vfc-recent-link:focus {
+    background: #f7f7f5;
+}
+.vfc-recent-icon {
+    flex: 0 0 auto;
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+}
+.vfc-recent-icon svg {
+    width: 20px;
+    height: 20px;
+}
+.vfc-recent-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.vfc-recent-name {
+    font-weight: 600;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.vfc-recent-date {
+    font-size: 13px;
+    color: #767676;
+    margin-top: 2px;
+}

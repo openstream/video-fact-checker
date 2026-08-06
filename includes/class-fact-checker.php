@@ -2,9 +2,13 @@
 namespace VideoFactChecker;
 
 class FactChecker {
-    // Max length of the link-preview meta description. Kept short so messengers
-    // (WhatsApp/Telegram/Slack) show it in full instead of cutting it mid-word.
+    // Max length of the social link-preview description (og:/twitter:). Kept
+    // short so messengers (WhatsApp/Telegram/Slack) show it in full instead of
+    // cutting it mid-word.
     const META_MAX_LEN = 120;
+    // Max length of the SEO meta description (<meta name="description">). Longer,
+    // since Google shows more — a fuller snippet reads better in search results.
+    const SEO_MAX_LEN = 160;
 
     private $api_key;
     private $model;           // primary/configured model
@@ -106,13 +110,14 @@ class FactChecker {
     }
 
     /**
-     * Trim a plain-text summary to META_MAX_LEN, cutting at a word boundary and
-     * appending an ellipsis. Shared by the model-written META line and the
-     * analysis-derived fallback so both respect the same preview length.
+     * Trim a plain-text summary to $max characters, cutting at a word boundary
+     * and appending an ellipsis. Shared by the model-written META line, the
+     * analysis-derived fallback, and the SEO/social description split, so they
+     * all cut cleanly. $max defaults to the short social-preview length.
      */
-    public static function truncate_meta($text) {
+    public static function truncate_meta($text, $max = self::META_MAX_LEN) {
         $text = trim((string) $text);
-        $max = self::META_MAX_LEN;
+        $max = (int) $max;
         if (function_exists('mb_strlen')) {
             if (mb_strlen($text) <= $max) {
                 return $text;
@@ -125,6 +130,40 @@ class FactChecker {
             return $text;
         }
         return rtrim(substr($text, 0, $max - 1)) . '…';
+    }
+
+    /**
+     * Best-effort language detection from a piece of text, for the share page's
+     * <html lang>. Dependency-free stopword scoring over the languages typical
+     * for social-video content. Returns a 2-letter ISO code, or '' if unsure.
+     */
+    public static function detect_language($text) {
+        $text = ' ' . mb_strtolower(wp_strip_all_tags((string) $text)) . ' ';
+        if (trim($text) === '') {
+            return '';
+        }
+        // High-signal, mostly language-exclusive stopwords per language.
+        $sets = [
+            'en' => ['the','and','of','to','is','are','that','with','this','you','for','not','have','it'],
+            'de' => ['der','die','das','und','ist','nicht','ein','eine','auch','wird','sich','dass','mit','für','über','beim','wenn'],
+            'fr' => ['le','la','les','des','une','est','pas','que','pour','dans','avec','sur','vous','nous','ce','cette'],
+            'es' => ['el','la','los','las','una','que','por','para','con','como','pero','más','este','esta','son'],
+            'it' => ['il','lo','gli','che','non','per','con','una','questo','sono','anche','più','della','delle'],
+            'pt' => ['os','as','uma','que','não','para','com','como','mais','este','esta','são','também','está'],
+            'nl' => ['de','het','een','en','van','is','niet','dat','met','voor','deze','wordt','ook','zijn'],
+        ];
+        $scores = [];
+        foreach ($sets as $lang => $words) {
+            $count = 0;
+            foreach ($words as $w) {
+                $count += mb_substr_count($text, ' ' . $w . ' ');
+            }
+            $scores[$lang] = $count;
+        }
+        arsort($scores);
+        $best = array_key_first($scores);
+        // Require a minimum signal so short/ambiguous text doesn't mislabel.
+        return ($scores[$best] >= 3) ? $best : '';
     }
 
     /**
@@ -141,57 +180,64 @@ class FactChecker {
      * single entry adds noise, not navigation). The returned HTML always has
      * the ids applied so in-page anchors work even without a rendered TOC.
      */
-    public static function build_toc($analysis_html) {
+    public static function build_toc($analysis_html, $extra_entry = null) {
         $analysis_html = (string) $analysis_html;
-        if (!preg_match('/<h[2-4]\b/i', $analysis_html)) {
-            return ['', $analysis_html];
-        }
-
-        $dom = new \DOMDocument();
-        // Load as a UTF-8 fragment without letting libxml inject <html>/<body>
-        // wrappers or choke on HTML5 tags.
-        $prev = libxml_use_internal_errors(true);
-        $dom->loadHTML(
-            '<?xml encoding="UTF-8"><div id="vfc-root">' . $analysis_html . '</div>',
-            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD
-        );
-        libxml_clear_errors();
-        libxml_use_internal_errors($prev);
-
-        // Use the shallowest heading level that actually appears.
-        $headings = null;
-        foreach (['h2', 'h3', 'h4'] as $tag) {
-            $found = $dom->getElementsByTagName($tag);
-            if ($found->length > 0) {
-                $headings = $found;
-                break;
-            }
-        }
-        if ($headings === null || $headings->length < 2) {
-            return ['', $analysis_html];
-        }
+        // The extra entry (e.g. the transcript section) counts toward the TOC, so
+        // an analysis with headings always gets a TOC once it's added.
+        $extra = (is_array($extra_entry) && !empty($extra_entry['id']) && !empty($extra_entry['title']))
+            ? ['id' => (string) $extra_entry['id'], 'title' => (string) $extra_entry['title']]
+            : null;
 
         $items = [];
-        $i = 0;
-        // Snapshot the live NodeList before mutating attributes (setAttribute on a
-        // live list is fine, but iterate over a copy to be safe).
-        $nodes = [];
-        foreach ($headings as $h) { $nodes[] = $h; }
-        foreach ($nodes as $h) {
-            $i++;
-            $id = 'vfc-sec-' . $i;
-            $h->setAttribute('id', $id);
-            $items[] = [
-                'id'    => $id,
-                'title' => trim($h->textContent),
-            ];
+        if (preg_match('/<h[2-4]\b/i', $analysis_html)) {
+            $dom = new \DOMDocument();
+            // Load as a UTF-8 fragment without letting libxml inject <html>/<body>
+            // wrappers or choke on HTML5 tags.
+            $prev = libxml_use_internal_errors(true);
+            $dom->loadHTML(
+                '<?xml encoding="UTF-8"><div id="vfc-root">' . $analysis_html . '</div>',
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD
+            );
+            libxml_clear_errors();
+            libxml_use_internal_errors($prev);
+
+            // Use the shallowest heading level that actually appears.
+            $headings = null;
+            foreach (['h2', 'h3', 'h4'] as $tag) {
+                $found = $dom->getElementsByTagName($tag);
+                if ($found->length > 0) {
+                    $headings = $found;
+                    break;
+                }
+            }
+            if ($headings !== null) {
+                $i = 0;
+                // Snapshot the live NodeList before mutating attributes.
+                $nodes = [];
+                foreach ($headings as $h) { $nodes[] = $h; }
+                foreach ($nodes as $h) {
+                    $i++;
+                    $id = 'vfc-sec-' . $i;
+                    $h->setAttribute('id', $id);
+                    $items[] = ['id' => $id, 'title' => trim($h->textContent)];
+                }
+                // Re-serialize just the inner HTML of #vfc-root.
+                $root = $dom->getElementById('vfc-root');
+                $html_with_ids = '';
+                foreach ($root->childNodes as $child) {
+                    $html_with_ids .= $dom->saveHTML($child);
+                }
+                $analysis_html = $html_with_ids;
+            }
         }
 
-        // Re-serialize just the inner HTML of #vfc-root.
-        $root = $dom->getElementById('vfc-root');
-        $html_with_ids = '';
-        foreach ($root->childNodes as $child) {
-            $html_with_ids .= $dom->saveHTML($child);
+        if ($extra !== null) {
+            $items[] = $extra;
+        }
+
+        // A TOC with fewer than two entries adds noise, not navigation.
+        if (count($items) < 2) {
+            return ['', $analysis_html];
         }
 
         $links = '';
@@ -201,7 +247,7 @@ class FactChecker {
         }
         $toc_html = '<nav class="vfc-toc" aria-label="Contents"><ol>' . $links . '</ol></nav>';
 
-        return [$toc_html, $html_with_ids];
+        return [$toc_html, $analysis_html];
     }
 
     /**

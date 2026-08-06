@@ -109,11 +109,14 @@ class VideoProcessor {
             $this->last_title = mb_substr($r['title'], 0, 500);
         }
         $this->logger->log("Transcript via {$source} (duration={$r['duration']}s, no Whisper)");
+        // Normalise the caption language code to a 2-letter code (e.g. "en-US" → "en").
+        $lang = isset($r['lang']) ? strtolower(substr((string) $r['lang'], 0, 2)) : '';
         return [
             'transcript' => $r['transcript'],
             'duration'   => (int) $r['duration'],
             'title'      => isset($r['title']) ? $r['title'] : '',
             'source'     => $source,
+            'lang'       => $lang,
         ];
     }
 

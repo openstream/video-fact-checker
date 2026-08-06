@@ -68,23 +68,19 @@ get_header();
         text-decoration: underline;
     }
     /* Offset anchor jumps so the heading isn't hidden under the sticky header.
-       Section level is h2 (Parsedown) or h3 (fallback converter), so cover both. */
+       Section level is h2 (Parsedown) or h3 (fallback converter), so cover both.
+       The transcript heading is a section target too. */
     .vfc-shared-content #analysis-result h2[id],
     .vfc-shared-content #analysis-result h3[id],
-    .vfc-shared-content #analysis-result h4[id] {
+    .vfc-shared-content #analysis-result h4[id],
+    .vfc-shared-content #vfc-transcript {
         scroll-margin-top: 24px;
     }
 
-    /* Collapsible transcript — folded by default, the reader rarely needs it. */
-    details.vfc-transcript > summary {
-        cursor: pointer;
-        font-weight: 700;
-        font-size: 18px;
-        padding: 8px 0;
-        list-style-position: inside;
-    }
-    details.vfc-transcript[open] > summary {
-        margin-bottom: 12px;
+    /* Transcript is now a normal section at the end of the page (not collapsed):
+       it sits in the flow and is linked from the table of contents. */
+    .vfc-shared-content .vfc-transcript > h2 {
+        margin-top: 32px;
     }
 </style>
 <?php

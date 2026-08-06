@@ -139,6 +139,7 @@ class Ajax {
             $transcription = null;
             $used_captions = false;
             $transcript_source = 'download+whisper';
+            $lang = ''; // content language, for <html lang> on the share page
 
             if ($this->processor->is_youtube_url($url)) {
                 $this->set_status('downloading'); // shown as "fetching" to the user
@@ -147,6 +148,7 @@ class Ajax {
                     $transcription = $caption['transcript'];
                     $used_captions = true;
                     $transcript_source = $caption['source']; // innertube-direct | innertube-proxy
+                    $lang = isset($caption['lang']) ? $caption['lang'] : ''; // from the caption track
                 } else {
                     // No captions: fall back to audio download + Whisper, but only
                     // for videos within the configured length limit.
@@ -216,6 +218,15 @@ class Ajax {
             $title = $this->processor->get_last_title();
             if ($title !== '') {
                 $metrics['video_title'] = $title;
+            }
+            // Record the content language (for <html lang> on the share page).
+            // Prefer the caption track's language; otherwise detect it from the
+            // transcript.
+            if ($lang === '') {
+                $lang = \VideoFactChecker\FactChecker::detect_language($transcription);
+            }
+            if ($lang !== '') {
+                $metrics['lang'] = $lang;
             }
             // Record which model actually produced the analysis (may be the fallback).
             $used_model = $this->fact_checker->get_used_model();

@@ -9,9 +9,11 @@ $vfc_descriptor = \VideoFactChecker\PlatformIcon::describe(
 
 // Build a table of contents from the analysis headings and get the analysis
 // HTML back with anchor ids applied. $vfc_toc is '' when there are too few
-// headings to bother with a TOC.
+// headings to bother with a TOC. The transcript is a real section too, so we
+// add it to the TOC as a final entry that jumps to #vfc-transcript.
 list($vfc_toc, $vfc_analysis_html) = \VideoFactChecker\FactChecker::build_toc(
-    isset($result->analysis) ? $result->analysis : ''
+    isset($result->analysis) ? $result->analysis : '',
+    ['id' => 'vfc-transcript', 'title' => 'Video transcript']
 );
 ?>
 <div class="video-fact-checker-result">
@@ -31,8 +33,8 @@ list($vfc_toc, $vfc_analysis_html) = \VideoFactChecker\FactChecker::build_toc(
         <div class="content"><?php echo wp_kses_post($vfc_analysis_html); ?></div>
     </div>
 
-    <details id="transcription-result" class="vfc-transcript">
-        <summary>Video Transcription</summary>
+    <section id="transcription-result" class="vfc-transcript">
+        <h2 id="vfc-transcript">Video transcript</h2>
         <div class="content"><?php echo nl2br(esc_html($result->transcription)); ?></div>
-    </details>
+    </section>
 </div>

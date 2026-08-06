@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.15.4
+ * Version: 0.16.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,9 +31,9 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.15.4');
+define('VFC_VERSION', '0.16.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 10);
+define('VFC_DB_VERSION', 11);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -86,6 +86,14 @@ add_action('plugins_loaded', 'vfc_init');
 function vfc_render_form() {
     ob_start();
     include VFC_PLUGIN_DIR . 'templates/frontend-form.php';
+
+    // Show the most recently fact-checked videos under the form, linking to
+    // their public share pages (helps discovery + gives crawlers internal links).
+    $vfc_recent = (new VideoFactChecker\CacheManager())->get_recent_transcriptions(3);
+    if (!empty($vfc_recent)) {
+        include VFC_PLUGIN_DIR . 'templates/recent-checks.php';
+    }
+
     return ob_get_clean();
 }
 
@@ -373,19 +381,30 @@ function vfc_template_redirect() {
 add_action('template_redirect', 'vfc_template_redirect');
 
 /**
- * Feed the share page's title + description to the SEO/meta layer so link
- * previews (WhatsApp, Slack, X, …) show a real title and a one-line summary.
+ * Register the fact-check share pages as a sub-sitemap inside Rank Math's
+ * /sitemap_index.xml. Guarded so it only runs when Rank Math's sitemap provider
+ * interface is available (referencing it otherwise would fatal on class load).
+ */
+add_filter('rank_math/sitemap/providers', function ($providers) {
+    if (interface_exists('\\RankMath\\Sitemap\\Providers\\Provider')) {
+        $providers[] = new VideoFactChecker\SitemapProvider();
+    }
+    return $providers;
+});
+
+/**
+ * Feed the share page's title + descriptions to the SEO/meta layer.
  *
  * The /share/ route resolves to no WP post, so an SEO plugin would otherwise
- * emit a generic site-wide description. Rank Math is active here, and its
- * `rank_math/frontend/{title,description}` filters flow into the plain
- * <meta name="description"> AND the Open Graph / Twitter tags — so hooking
- * those two gives correct previews with no duplicated tags. If Rank Math is
- * absent, we fall back to echoing the tags ourselves on wp_head.
+ * emit a generic site-wide description. Rank Math is active here; we hook its
+ * filters so tags render once, with no duplicates. If Rank Math is absent we
+ * echo the tags ourselves on wp_head.
  *
- * Description precedence: the stored model-written meta_description, else a
- * fallback derived from the readable text of the analysis (results stored
- * before the meta_description column existed). Trimmed to ≤160 characters.
+ * Two descriptions, on purpose:
+ *  - SEO (<meta name="description">, ≤160): derived from the analysis text —
+ *    a fuller, informative snippet reads better in Google results.
+ *  - Social (og:/twitter:description, ≤120): the short model-written
+ *    meta_description, so messengers show it in full without truncating.
  */
 function vfc_emit_share_meta_tags($result, $canonical_url) {
     $descriptor = \VideoFactChecker\PlatformIcon::describe(
@@ -397,39 +416,73 @@ function vfc_emit_share_meta_tags($result, $canonical_url) {
         ? ('Fact check: ' . $descriptor)
         : 'Video Fact Check Results';
 
-    $description = isset($result->meta_description) ? trim((string) $result->meta_description) : '';
-    if ($description === '') {
-        // Fallback for results stored before meta_description existed. Decode any
-        // HTML entities first so a stored "&#039;" doesn't leak into the preview.
-        // Some legacy rows also contain a corrupted "&039;" (a historical
-        // converter dropped the '#'); repair that before decoding.
-        $text = wp_strip_all_tags((string) ($result->analysis ?? ''));
-        $text = preg_replace('/&(\d+);/', '&#$1;', $text);
-        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $description = trim(preg_replace('/\s+/u', ' ', $text));
+    // Set <html lang> to the content's language (SEO + accessibility) instead of
+    // the site default. Prefer the stored language; else detect it from the
+    // analysis (or transcript) for rows saved before we recorded it.
+    $lang = isset($result->lang) ? strtolower(substr((string) $result->lang, 0, 5)) : '';
+    if ($lang === '') {
+        $lang = \VideoFactChecker\FactChecker::detect_language(
+            (string) ($result->analysis ?? '') . ' ' . (string) ($result->transcription ?? '')
+        );
     }
-    // Enforce the short preview length on both the stored value (older rows may
-    // hold a longer one) and the fallback, via the shared truncator.
-    $description = \VideoFactChecker\FactChecker::truncate_meta($description);
+    if ($lang !== '') {
+        add_filter('language_attributes', function ($output) use ($lang) {
+            // Replace the lang="…" attribute; leave dir/other attrs intact.
+            if (preg_match('/lang=/i', $output)) {
+                return preg_replace('/lang="[^"]*"/i', 'lang="' . esc_attr($lang) . '"', $output);
+            }
+            return $output . ' lang="' . esc_attr($lang) . '"';
+        });
+    }
+
+    // Clean, plain-text rendering of the analysis (used for the SEO description
+    // and as the fallback social description). Repairs the legacy "&039;"
+    // entity corruption and decodes entities before measuring length.
+    $analysis_text = wp_strip_all_tags((string) ($result->analysis ?? ''));
+    $analysis_text = preg_replace('/&(\d+);/', '&#$1;', $analysis_text);
+    $analysis_text = html_entity_decode($analysis_text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $analysis_text = trim(preg_replace('/\s+/u', ' ', $analysis_text));
+
+    // Social: the short model summary, else the analysis text — both trimmed to
+    // the short social length.
+    $social_source = isset($result->meta_description) ? trim((string) $result->meta_description) : '';
+    if ($social_source === '') {
+        $social_source = $analysis_text;
+    }
+    $social_desc = \VideoFactChecker\FactChecker::truncate_meta(
+        $social_source, \VideoFactChecker\FactChecker::META_MAX_LEN
+    );
+
+    // SEO: the longer, analysis-derived description (falls back to the social
+    // text if there's no analysis for some reason).
+    $seo_source = $analysis_text !== '' ? $analysis_text : $social_source;
+    $seo_desc = \VideoFactChecker\FactChecker::truncate_meta(
+        $seo_source, \VideoFactChecker\FactChecker::SEO_MAX_LEN
+    );
 
     // Preferred path: let the SEO plugin render the tags from our values.
+    // frontend/description feeds <meta name="description"> (SEO); the per-network
+    // og_description / twitter_description filters override just the social tags.
     if (defined('RANK_MATH_VERSION') || class_exists('RankMath\\Helper')) {
         add_filter('rank_math/frontend/title', function () use ($title) { return $title; });
-        add_filter('rank_math/frontend/description', function () use ($description) { return $description; });
+        add_filter('rank_math/frontend/description', function () use ($seo_desc) { return $seo_desc; });
         add_filter('rank_math/opengraph/type', function () { return 'article'; });
+        add_filter('rank_math/opengraph/facebook/og_description', function () use ($social_desc) { return $social_desc; });
+        add_filter('rank_math/opengraph/twitter/twitter_description', function () use ($social_desc) { return $social_desc; });
         return;
     }
 
-    // Fallback: no SEO plugin — emit the tags directly.
-    add_action('wp_head', function () use ($title, $description, $canonical_url) {
-        $out  = '<meta name="description" content="' . esc_attr($description) . '">' . "\n";
+    // Fallback: no SEO plugin — emit the tags directly (SEO desc on the meta
+    // description, social desc on og:/twitter:).
+    add_action('wp_head', function () use ($title, $seo_desc, $social_desc, $canonical_url) {
+        $out  = '<meta name="description" content="' . esc_attr($seo_desc) . '">' . "\n";
         $out .= '<meta property="og:type" content="article">' . "\n";
         $out .= '<meta property="og:title" content="' . esc_attr($title) . '">' . "\n";
-        $out .= '<meta property="og:description" content="' . esc_attr($description) . '">' . "\n";
+        $out .= '<meta property="og:description" content="' . esc_attr($social_desc) . '">' . "\n";
         $out .= '<meta property="og:url" content="' . esc_url($canonical_url) . '">' . "\n";
         $out .= '<meta name="twitter:card" content="summary">' . "\n";
         $out .= '<meta name="twitter:title" content="' . esc_attr($title) . '">' . "\n";
-        $out .= '<meta name="twitter:description" content="' . esc_attr($description) . '">' . "\n";
+        $out .= '<meta name="twitter:description" content="' . esc_attr($social_desc) . '">' . "\n";
         echo $out;
     }, 1);
 }

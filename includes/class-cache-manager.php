@@ -57,6 +57,7 @@ class CacheManager {
         // Append any provided metrics with the correct format specifiers.
         $metric_formats = [
             'meta_description' => '%s',
+            'lang' => '%s',
             'video_title' => '%s',
             'used_model' => '%s',
             'platform' => '%s',
@@ -101,6 +102,7 @@ class CacheManager {
             transcription longtext,
             analysis longtext,
             meta_description varchar(200) DEFAULT NULL,
+            lang varchar(10) DEFAULT NULL,
             video_title varchar(500) DEFAULT NULL,
             used_model varchar(50) DEFAULT NULL,
             platform varchar(20) DEFAULT NULL,
@@ -143,6 +145,35 @@ class CacheManager {
         $sql = $this->wpdb->prepare(
             "SELECT id, video_url, short_url, created_at, video_title, platform, analysis FROM {$this->table_name} ORDER BY created_at DESC, id DESC LIMIT %d",
             $limit
+        );
+        return $this->wpdb->get_results($sql);
+    }
+
+    /**
+     * Count publicly shareable fact-checks (rows with a short_url), for the
+     * sitemap. Excludes the temporary "temp_…" short URLs used by nocache runs.
+     */
+    public function count_sitemap_rows() {
+        return (int) $this->wpdb->get_var(
+            "SELECT COUNT(*) FROM {$this->table_name}
+             WHERE short_url IS NOT NULL AND short_url <> '' AND short_url NOT LIKE 'temp\\_%'"
+        );
+    }
+
+    /**
+     * Rows for the XML sitemap: short_url + created_at, newest first, paginated.
+     * Only publicly shareable rows (see count_sitemap_rows()).
+     */
+    public function get_sitemap_rows($limit, $offset = 0) {
+        $limit = max(1, (int) $limit);
+        $offset = max(0, (int) $offset);
+        $sql = $this->wpdb->prepare(
+            "SELECT short_url, created_at FROM {$this->table_name}
+             WHERE short_url IS NOT NULL AND short_url <> '' AND short_url NOT LIKE 'temp\\_%'
+             ORDER BY created_at DESC, id DESC
+             LIMIT %d OFFSET %d",
+            $limit,
+            $offset
         );
         return $this->wpdb->get_results($sql);
     }
