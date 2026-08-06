@@ -2,6 +2,10 @@
 namespace VideoFactChecker;
 
 class FactChecker {
+    // Max length of the link-preview meta description. Kept short so messengers
+    // (WhatsApp/Telegram/Slack) show it in full instead of cutting it mid-word.
+    const META_MAX_LEN = 120;
+
     private $api_key;
     private $model;           // primary/configured model
     private $fallback_model;  // used if the primary returns an empty analysis
@@ -94,19 +98,33 @@ class FactChecker {
         }
 
         $summary = trim(wp_strip_all_tags($m[1][0]));
-        if (function_exists('mb_strlen') && mb_strlen($summary) > 160) {
-            $summary = rtrim(mb_substr($summary, 0, 157));
-            // Trim back to the last word boundary, then add an ellipsis.
-            $summary = preg_replace('/\s+\S*$/u', '', $summary);
-            $summary .= '…';
-        } elseif (!function_exists('mb_strlen') && strlen($summary) > 160) {
-            $summary = rtrim(substr($summary, 0, 157)) . '…';
-        }
-        $this->last_meta_description = $summary;
+        $this->last_meta_description = self::truncate_meta($summary);
 
         // Remove the whole META line (and any blank line right after it).
         $stripped = substr($content, 0, $m[0][1]) . substr($content, $m[0][1] + strlen($m[0][0]));
         return ltrim($stripped, "\r\n");
+    }
+
+    /**
+     * Trim a plain-text summary to META_MAX_LEN, cutting at a word boundary and
+     * appending an ellipsis. Shared by the model-written META line and the
+     * analysis-derived fallback so both respect the same preview length.
+     */
+    public static function truncate_meta($text) {
+        $text = trim((string) $text);
+        $max = self::META_MAX_LEN;
+        if (function_exists('mb_strlen')) {
+            if (mb_strlen($text) <= $max) {
+                return $text;
+            }
+            $text = rtrim(mb_substr($text, 0, $max - 1));
+            $text = preg_replace('/\s+\S*$/u', '', $text);
+            return $text . '…';
+        }
+        if (strlen($text) <= $max) {
+            return $text;
+        }
+        return rtrim(substr($text, 0, $max - 1)) . '…';
     }
 
     /**
@@ -210,7 +228,7 @@ class FactChecker {
                         . 'Write each heading TITLE in the transcript\'s language (e.g. for English use "## Summary", "## Checked claims", "## Context & nuance", "## Takeaway"; for German use "## Kurzfazit", "## Geprüfte Behauptungen", "## Einordnung & Kontext", "## Fazit"). '
                         . 'Use "## " for these section headings and never use a single "#". Do not add other top-level sections. '
                         . "\n\n"
-                        . 'Before the analysis, output ONE first line of the form "META: <summary>", where <summary> is a neutral, self-contained overview of the fact-check result in at most 160 characters, in the transcript\'s language. '
+                        . 'Before the analysis, output ONE first line of the form "META: <summary>", where <summary> is a neutral, self-contained overview of the fact-check result in AT MOST 120 CHARACTERS (this is a hard limit — link previews cut off longer text), in the transcript\'s language. '
                         . 'This META line is metadata for link previews — put nothing else on that line and do not repeat it in the body.'
                 ],
                 [

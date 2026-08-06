@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.15.3
+ * Version: 0.15.4
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.15.3');
+define('VFC_VERSION', '0.15.4');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 10);
 
@@ -406,15 +406,11 @@ function vfc_emit_share_meta_tags($result, $canonical_url) {
         $text = wp_strip_all_tags((string) ($result->analysis ?? ''));
         $text = preg_replace('/&(\d+);/', '&#$1;', $text);
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = trim(preg_replace('/\s+/u', ' ', $text));
-        if (function_exists('mb_strlen') && mb_strlen($text) > 160) {
-            $text = rtrim(mb_substr($text, 0, 157));
-            $text = preg_replace('/\s+\S*$/u', '', $text) . '…';
-        } elseif (strlen($text) > 160) {
-            $text = rtrim(substr($text, 0, 157)) . '…';
-        }
-        $description = $text;
+        $description = trim(preg_replace('/\s+/u', ' ', $text));
     }
+    // Enforce the short preview length on both the stored value (older rows may
+    // hold a longer one) and the fallback, via the shared truncator.
+    $description = \VideoFactChecker\FactChecker::truncate_meta($description);
 
     // Preferred path: let the SEO plugin render the tags from our values.
     if (defined('RANK_MATH_VERSION') || class_exists('RankMath\\Helper')) {
