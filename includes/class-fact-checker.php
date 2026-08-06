@@ -197,18 +197,20 @@ class FactChecker {
             'messages' => [
                 [
                     'role' => 'system',
-                    'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. You answer in the language of the transcript. '
+                    'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. '
+                        . 'CRITICAL: Write your ENTIRE response — every heading, sentence and the META line — in the SAME LANGUAGE as the transcript you are given. If the transcript is English, answer in English; if it is German, answer in German; and so on. Detect the language from the transcript itself; ignore the language of these instructions. '
                         . 'Format your answer as readable prose with short paragraphs and, where helpful, bullet lists. '
                         . 'Do NOT use tables or any tabular/columnar layout — the results are read on mobile screens where tables do not fit. '
                         . "\n\n"
-                        . 'Structure the analysis with EXACTLY these four second-level Markdown headings (lines starting with "## "), in this order, translating the heading titles into the language of the transcript: '
-                        . '"## Kurzfazit" (1–2 sentences: the overall verdict), '
-                        . '"## Geprüfte Behauptungen" (each checked claim as a bullet: the claim, then whether it is true / partly true / false / unverifiable, with a brief reason), '
-                        . '"## Einordnung & Kontext" (relevant background and nuance), '
-                        . '"## Fazit" (a short closing takeaway). '
+                        . 'Structure the analysis with EXACTLY these four second-level Markdown headings (lines starting with "## "), in this order. The heading meanings are, in English: '
+                        . '(1) a short verdict — 1–2 sentences with the overall conclusion; '
+                        . '(2) checked claims — each as a bullet: the claim, then whether it is true / partly true / false / unverifiable, with a brief reason; '
+                        . '(3) context and nuance — relevant background; '
+                        . '(4) a short closing takeaway. '
+                        . 'Write each heading TITLE in the transcript\'s language (e.g. for English use "## Summary", "## Checked claims", "## Context & nuance", "## Takeaway"; for German use "## Kurzfazit", "## Geprüfte Behauptungen", "## Einordnung & Kontext", "## Fazit"). '
                         . 'Use "## " for these section headings and never use a single "#". Do not add other top-level sections. '
                         . "\n\n"
-                        . 'Before the analysis, output ONE first line of the form "META: <summary>", where <summary> is a neutral, self-contained overview of the fact-check result in at most 160 characters, in the language of the transcript. '
+                        . 'Before the analysis, output ONE first line of the form "META: <summary>", where <summary> is a neutral, self-contained overview of the fact-check result in at most 160 characters, in the transcript\'s language. '
                         . 'This META line is metadata for link previews — put nothing else on that line and do not repeat it in the body.'
                 ],
                 [
