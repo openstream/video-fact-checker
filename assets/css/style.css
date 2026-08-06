@@ -283,6 +283,14 @@
     text-decoration: none;
     color: inherit;
 }
+/* Twenty Sixteen gives every .entry-content link a dark 1px bottom box-shadow
+   (an underline effect) that reads as a divider line in this list. Override it
+   with a matching-specificity selector so it actually wins. */
+.entry-content .vfc-recent-link,
+.entry-content .vfc-recent-link:hover,
+.entry-content .vfc-recent-link:focus {
+    box-shadow: none;
+}
 .vfc-recent-link:hover,
 .vfc-recent-link:focus {
     background: #f7f7f5;
