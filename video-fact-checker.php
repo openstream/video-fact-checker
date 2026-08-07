@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.16.4
+ * Version: 0.16.5
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.16.4');
+define('VFC_VERSION', '0.16.5');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -342,9 +342,29 @@ function vfc_add_query_vars($vars) {
 }
 add_filter('query_vars', 'vfc_add_query_vars');
 
+/**
+ * Permanent (301) redirects between share codes. Used when a fact-check was
+ * regenerated under a new short URL (e.g. an old result in the wrong language)
+ * and we want existing links + search engines to follow to the correct one.
+ * Map: old short code => new short code.
+ */
+function vfc_share_redirects() {
+    return [
+        // Regenerated to fix a wrong-language analysis (EN video → DE analysis).
+        'bdWIuG' => 'ZTwg4N', // CAR-T cell therapy (Instagram)
+    ];
+}
+
 function vfc_template_redirect() {
     $short_url = get_query_var('vfc_short_url');
     if ($short_url) {
+        // 301 old → new share codes before doing anything else.
+        $redirects = vfc_share_redirects();
+        if (isset($redirects[$short_url])) {
+            wp_redirect(home_url('/share/' . $redirects[$short_url] . '/'), 301);
+            exit;
+        }
+
         $logger = new VideoFactChecker\Logger();
         $logger->log("Handling share URL: " . $short_url);
         
