@@ -58,6 +58,16 @@ class FactChecker {
                   "Highlight any claims that are verifiable and indicate their accuracy. " .
                   "Text to analyze: " . $transcription;
 
+        // Detect the transcript language deterministically and pass it to the
+        // model, instead of letting it guess. The model otherwise sometimes
+        // answers in German for clearly-English transcripts (the German heading
+        // examples in the prompt "bleed" into the output). '' when unsure — then
+        // the model falls back to detecting it from the text.
+        $lang_name = self::language_name(self::detect_language($transcription));
+        if ($lang_name !== '') {
+            $this->logger->log("Detected transcript language: {$lang_name}");
+        }
+
         // Try the primary model, then the configured fallback if the primary yields
         // no usable content (seen with GPT-5 reasoning models). This guarantees a
         // result while letting us use a newer primary model.
@@ -71,7 +81,7 @@ class FactChecker {
             if ($idx > 0) {
                 $this->logger->log("Primary model produced no analysis; falling back to {$model}");
             }
-            $content = $this->request_analysis($model, $prompt, $last_error);
+            $content = $this->request_analysis($model, $prompt, $last_error, $lang_name);
             if ($content !== '') {
                 $this->used_model = $model;
                 // Pull the leading "META: …" line (the model's own ≤160-char
@@ -167,6 +177,19 @@ class FactChecker {
     }
 
     /**
+     * Human-readable English name for a 2-letter language code (for prompting
+     * the model). Returns '' for unknown codes.
+     */
+    public static function language_name($code) {
+        $names = [
+            'en' => 'English', 'de' => 'German', 'fr' => 'French', 'es' => 'Spanish',
+            'it' => 'Italian', 'pt' => 'Portuguese', 'nl' => 'Dutch',
+        ];
+        $code = strtolower(substr((string) $code, 0, 2));
+        return isset($names[$code]) ? $names[$code] : '';
+    }
+
+    /**
      * Build a table of contents for a rendered analysis: parse its section
      * headings, give each a stable id, and return [$toc_html, $html_with_ids].
      *
@@ -255,26 +278,39 @@ class FactChecker {
      * if the model returned no usable content after a retry. Sets $last_error by
      * reference. Captures token usage for the successful/last call.
      */
-    private function request_analysis($model, $prompt, &$last_error) {
+    private function request_analysis($model, $prompt, &$last_error, $lang_name = '') {
+        // Language directive: when we detected the transcript language, name it
+        // explicitly (deterministic); otherwise tell the model to detect it. This
+        // is stated first and repeated, because the model otherwise occasionally
+        // defaults to German even for clearly non-German transcripts.
+        if ($lang_name !== '') {
+            $language_rule = "The transcript is written in {$lang_name}. Write your ENTIRE response"
+                . " — every heading, every sentence and the META line — in {$lang_name}, and in no"
+                . " other language. Do NOT translate into German or any other language.";
+        } else {
+            $language_rule = 'Write your ENTIRE response — every heading, every sentence and the META'
+                . ' line — in the SAME LANGUAGE as the transcript. Detect that language from the'
+                . ' transcript itself and ignore the language of these instructions.';
+        }
+
         $payload = [
             'model' => $model,
             'messages' => [
                 [
                     'role' => 'system',
                     'content' => 'You are a fact-checking assistant. Analyze the provided text and identify factual claims, verifying their accuracy where possible. '
-                        . 'CRITICAL: Write your ENTIRE response — every heading, sentence and the META line — in the SAME LANGUAGE as the transcript you are given. If the transcript is English, answer in English; if it is German, answer in German; and so on. Detect the language from the transcript itself; ignore the language of these instructions. '
+                        . 'CRITICAL LANGUAGE RULE: ' . $language_rule . ' '
                         . 'Format your answer as readable prose with short paragraphs and, where helpful, bullet lists. '
                         . 'Do NOT use tables or any tabular/columnar layout — the results are read on mobile screens where tables do not fit. '
                         . "\n\n"
-                        . 'Structure the analysis with EXACTLY these four second-level Markdown headings (lines starting with "## "), in this order. The heading meanings are, in English: '
+                        . 'Structure the analysis with EXACTLY these four second-level Markdown headings (lines starting with "## "), in this order. Their meanings (described here in English only for your reference — you must WRITE the titles in the response language, not in English unless the response language is English): '
                         . '(1) a short verdict — 1–2 sentences with the overall conclusion; '
                         . '(2) checked claims — each as a bullet: the claim, then whether it is true / partly true / false / unverifiable, with a brief reason; '
                         . '(3) context and nuance — relevant background; '
                         . '(4) a short closing takeaway. '
-                        . 'Write each heading TITLE in the transcript\'s language (e.g. for English use "## Summary", "## Checked claims", "## Context & nuance", "## Takeaway"; for German use "## Kurzfazit", "## Geprüfte Behauptungen", "## Einordnung & Kontext", "## Fazit"). '
                         . 'Use "## " for these section headings and never use a single "#". Do not add other top-level sections. '
                         . "\n\n"
-                        . 'Before the analysis, output ONE first line of the form "META: <summary>", where <summary> is a neutral, self-contained overview of the fact-check result in AT MOST 120 CHARACTERS (this is a hard limit — link previews cut off longer text), in the transcript\'s language. '
+                        . 'Before the analysis, output ONE first line of the form "META: <summary>", where <summary> is a neutral, self-contained overview of the fact-check result in AT MOST 120 CHARACTERS (this is a hard limit — link previews cut off longer text), in the response language. '
                         . 'This META line is metadata for link previews — put nothing else on that line and do not repeat it in the body.'
                 ],
                 [
