@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.16.5
+ * Version: 0.16.6
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.16.5');
+define('VFC_VERSION', '0.16.6');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -367,10 +367,25 @@ function vfc_template_redirect() {
 
         $logger = new VideoFactChecker\Logger();
         $logger->log("Handling share URL: " . $short_url);
-        
+
         // Debug the exact short URL being looked up
         $logger->log("Looking up exact short URL: '" . $short_url . "'");
-        
+
+        // Look the result up first. An unknown/deleted code must serve a real 404
+        // (so search engines deindex it), not a 200 "not found" page.
+        $vfc_meta_result = (new VideoFactChecker\CacheManager())->get_by_short_url($short_url);
+        if (!$vfc_meta_result) {
+            $logger->log("Share URL not found, serving 404: '" . $short_url . "'");
+            global $wp_query;
+            status_header(404);
+            nocache_headers();
+            if ($wp_query instanceof \WP_Query) {
+                $wp_query->set_404();
+            }
+            require get_query_template('404');
+            exit;
+        }
+
         // This is a real, resolvable page — serve 200, not the default 404 that the
         // (unmatched) main query would otherwise imply, and give it a proper title.
         status_header(200);
@@ -382,13 +397,7 @@ function vfc_template_redirect() {
             return 'Video Fact Check Results · ' . get_bloginfo('name');
         });
 
-        // Fetch the result once for the social/meta tags. The shortcode below
-        // fetches it again for rendering; the extra read is cheap and keeps the
-        // template self-contained.
-        $vfc_meta_result = (new VideoFactChecker\CacheManager())->get_by_short_url($short_url);
-        if ($vfc_meta_result) {
-            vfc_emit_share_meta_tags($vfc_meta_result, home_url('/share/' . $short_url . '/'));
-        }
+        vfc_emit_share_meta_tags($vfc_meta_result, home_url('/share/' . $short_url . '/'));
 
         // Load the shared result
         $content = do_shortcode("[video_fact_checker_result url_id='" . esc_attr($short_url) . "']");
