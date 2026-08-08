@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.16.6
+ * Version: 0.17.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.16.6');
+define('VFC_VERSION', '0.17.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -230,6 +230,12 @@ register_activation_hook(__FILE__, function() {
         $first = strtotime('tomorrow 03:00');
         wp_schedule_event($first ?: time() + DAY_IN_SECONDS, 'daily', 'vfc_daily_log_email');
     }
+
+    // Schedule the weekly OpenAI-model watcher (Mondays ~04:00 site time).
+    if (!wp_next_scheduled('vfc_weekly_model_check')) {
+        $first = strtotime('next monday 04:00');
+        wp_schedule_event($first ?: time() + WEEK_IN_SECONDS, 'weekly', 'vfc_weekly_model_check');
+    }
 });
 
 // Also flush rules on deactivation
@@ -240,6 +246,12 @@ register_deactivation_hook(__FILE__, function() {
     $timestamp = wp_next_scheduled('vfc_daily_log_email');
     if ($timestamp) {
         wp_unschedule_event($timestamp, 'vfc_daily_log_email');
+    }
+
+    // Remove the scheduled weekly model check.
+    $model_ts = wp_next_scheduled('vfc_weekly_model_check');
+    if ($model_ts) {
+        wp_unschedule_event($model_ts, 'vfc_weekly_model_check');
     }
 });
 
@@ -257,12 +269,25 @@ add_action('vfc_daily_log_email', function() {
     $notifier->send_daily_log();
 });
 
-// Safety net: if the plugin was updated (not reactivated) and the event isn't
-// scheduled yet, schedule it on a normal request.
+// Weekly cron: check OpenAI for new models and email the admin if any appeared.
+add_action('vfc_weekly_model_check', function() {
+    try {
+        (new VideoFactChecker\ModelWatcher())->check();
+    } catch (\Throwable $e) {
+        (new VideoFactChecker\Logger())->log("Model watcher threw: " . $e->getMessage(), 'error');
+    }
+});
+
+// Safety net: if the plugin was updated (not reactivated) and the events aren't
+// scheduled yet, schedule them on a normal request.
 add_action('init', function() {
     if (!wp_next_scheduled('vfc_daily_log_email')) {
         $first = strtotime('tomorrow 03:00');
         wp_schedule_event($first ?: time() + DAY_IN_SECONDS, 'daily', 'vfc_daily_log_email');
+    }
+    if (!wp_next_scheduled('vfc_weekly_model_check')) {
+        $first = strtotime('next monday 04:00');
+        wp_schedule_event($first ?: time() + WEEK_IN_SECONDS, 'weekly', 'vfc_weekly_model_check');
     }
 });
 

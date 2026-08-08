@@ -21,7 +21,14 @@ class CostCalculator {
      */
     const MODEL_PRICING = [
         // GPT-5 family (reasoning-style: default temperature only; see FactChecker).
-        'gpt-5.6-luna' => [1.00, 6.00],
+        // The 5.6 line is a tier system (all released 2026-06-23, same Feb-2026
+        // cutoff): luna = cheapest, terra = mid, sol = flagship. Luna's price was
+        // cut ~80% on 2026-07-30 ([1.00, 6.00] → [0.20, 1.20]).
+        'gpt-5.6-luna' => [0.20, 1.20],
+        'gpt-5.6-terra' => [2.00, 12.00],
+        'gpt-5.6-sol'  => [5.00, 30.00],
+        'gpt-5.5'      => [5.00, 30.00],
+        'gpt-5.4'      => [2.50, 15.00],
         'gpt-5.4-mini' => [0.75, 4.50],
         // Classic chat models (custom temperature ok).
         'gpt-4.1'      => [2.00, 8.00],
@@ -40,6 +47,10 @@ class CostCalculator {
      */
     const MODEL_CUTOFF = [
         'gpt-5.6-luna' => 'Feb 2026',
+        'gpt-5.6-terra' => 'Feb 2026',
+        'gpt-5.6-sol'  => 'Feb 2026',
+        'gpt-5.5'      => 'Dec 2025',
+        'gpt-5.4'      => 'Aug 2025',
         'gpt-5.4-mini' => 'Aug 2025',
         'gpt-4.1'      => 'Jun 2024',
         'gpt-4.1-mini' => 'Jun 2024',
