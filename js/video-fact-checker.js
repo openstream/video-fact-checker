@@ -122,8 +122,7 @@ jQuery(document).ready(function($) {
 
     function displayResults(data) {
         console.log('Displaying results:', data);
-        const transcriptionContent = $('#transcription-result .content');
-        const analysisContent = $('#analysis-result .content');
+        const resultBody = $('#vfc-result-body');
 
         progressContainer.fadeOut(400, function() {
             // Clear any error from a previous attempt so success and error states
@@ -151,8 +150,14 @@ jQuery(document).ready(function($) {
             notice.text(parts.join(' · ') + '.');
             resultsContainer.prepend(notice);
 
-            transcriptionContent.text(data.transcription);
-            analysisContent.html(data.analysis);
+            // Render the full server-built result markup (TOC + transcript at the
+            // end), identical to the /share/ page. Falls back to raw analysis if
+            // an older server didn't send result_html.
+            if (data.result_html) {
+                resultBody.html(data.result_html);
+            } else {
+                resultBody.html(data.analysis);
+            }
 
             if (data.short_url) {
                 const shareUrl = `${window.location.origin}/share/${data.short_url}`;
@@ -189,8 +194,8 @@ jQuery(document).ready(function($) {
         console.error('Error:', message);
         progressContainer.fadeOut(400, function() {
             // Hide any previous successful result so success and error states
-            // never show at the same time. Render the error in its own container
-            // so the results markup (#transcription-result etc.) stays intact.
+            // never show at the same time. The error renders in its own container
+            // so the results container (#vfc-result-body) stays intact.
             resultsContainer.hide();
 
             const errorHtml = `

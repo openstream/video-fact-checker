@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.17.0
+ * Version: 0.17.1
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.17.0');
+define('VFC_VERSION', '0.17.1');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -351,6 +351,24 @@ function vfc_shared_result($atts) {
     return ob_get_clean();
 }
 add_shortcode('video_fact_checker_result', 'vfc_shared_result');
+
+/**
+ * Render the shared-result template from a result object (stdClass or array),
+ * so the inline result shown right after a fact-check is IDENTICAL to the
+ * /share/ page — same table of contents, same transcript-at-the-end layout.
+ * One rendering source, no JS/PHP duplication.
+ */
+function vfc_render_result_html($result) {
+    if (is_array($result)) {
+        $result = (object) $result;
+    }
+    if (!is_object($result) || empty($result->analysis)) {
+        return '';
+    }
+    ob_start();
+    include VFC_PLUGIN_DIR . 'templates/shared-result.php';
+    return ob_get_clean();
+}
 
 function vfc_add_rewrite_rules() {
     add_rewrite_rule(

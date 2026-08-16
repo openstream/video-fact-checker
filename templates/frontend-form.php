@@ -20,15 +20,9 @@
         </div>
 
         <div id="results-container" style="display: none;">
-            <div id="transcription-result">
-                <h3>Transcription</h3>
-                <div class="content"></div>
-            </div>
-
-            <div id="analysis-result">
-                <h3>Fact Check Analysis</h3>
-                <div class="content"></div>
-            </div>
+            <!-- Server-rendered result markup (TOC + analysis + transcript) goes
+                 here, identical to the /share/ page. -->
+            <div id="vfc-result-body"></div>
         </div>
     </form>
 </div>

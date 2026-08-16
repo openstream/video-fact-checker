@@ -18,70 +18,8 @@ get_header();
         </article>
     </main>
 </div>
-<style>
-    html { scroll-behavior: smooth; }
-    .vfc-shared-content .video-info {
-        margin-bottom: 24px;
-        padding-bottom: 20px;
-        border-bottom: 1px solid #eee;
-    }
-    .vfc-shared-content .video-info .video-title {
-        font-size: 20px;
-        line-height: 1.35;
-        margin: 0 0 10px;
-    }
-    .vfc-shared-content .video-info p {
-        margin: 0 0 6px;
-        word-break: break-word;
-    }
-    .vfc-shared-content #transcription-result,
-    .vfc-shared-content #analysis-result {
-        margin-bottom: 32px;
-    }
-    .vfc-shared-content .content {
-        background: #f7f7f5;
-        padding: 16px;
-        border-radius: 4px;
-    }
-
-    /* Table of contents: compact, tappable list of section links. */
-    .vfc-shared-content .vfc-toc {
-        background: #f7f7f5;
-        border-left: 3px solid #c9c9c4;
-        border-radius: 4px;
-        padding: 12px 16px 12px 20px;
-        margin: 0 0 20px;
-    }
-    .vfc-shared-content .vfc-toc ol {
-        margin: 0;
-        padding-left: 20px;
-    }
-    .vfc-shared-content .vfc-toc li {
-        margin: 4px 0;
-        line-height: 1.4;
-    }
-    .vfc-shared-content .vfc-toc a {
-        text-decoration: none;
-    }
-    .vfc-shared-content .vfc-toc a:hover,
-    .vfc-shared-content .vfc-toc a:focus {
-        text-decoration: underline;
-    }
-    /* Offset anchor jumps so the heading isn't hidden under the sticky header.
-       Section level is h2 (Parsedown) or h3 (fallback converter), so cover both.
-       The transcript heading is a section target too. */
-    .vfc-shared-content #analysis-result h2[id],
-    .vfc-shared-content #analysis-result h3[id],
-    .vfc-shared-content #analysis-result h4[id],
-    .vfc-shared-content #vfc-transcript {
-        scroll-margin-top: 24px;
-    }
-
-    /* Transcript is now a normal section at the end of the page (not collapsed):
-       it sits in the flow and is linked from the table of contents. */
-    .vfc-shared-content .vfc-transcript > h2 {
-        margin-top: 32px;
-    }
-</style>
 <?php
+// The result layout (TOC, transcript-at-end, etc.) is styled in assets/css/style.css
+// (scoped to .video-fact-checker-result), which this themed page also enqueues — so
+// the share page and the inline result share one stylesheet.
 get_footer();

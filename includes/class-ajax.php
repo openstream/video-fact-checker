@@ -124,7 +124,14 @@ class Ajax {
                         'short_url' => $cached_result['short_url'],
                         'cached' => true,
                         'cached_at' => $cached_at,
-                        'model' => isset($cached_result['used_model']) ? $cached_result['used_model'] : ''
+                        'model' => isset($cached_result['used_model']) ? $cached_result['used_model'] : '',
+                        // Full result markup (TOC + transcript at the end), same as
+                        // the /share/ page, so the inline view matches it. Render
+                        // from the full DB row (get_cached_result omits video_url /
+                        // video_title, which the template needs).
+                        'result_html' => vfc_render_result_html(
+                            $cache_manager->get_by_short_url($cached_result['short_url']) ?: $cached_result
+                        ),
                     ]);
                     return;
                 }
@@ -271,13 +278,24 @@ class Ajax {
                 }
             }
 
+            // Build a result object so the inline view renders via the same
+            // template as the /share/ page (TOC + transcript at the end).
+            $result_obj = (object) [
+                'analysis'      => $analysis,
+                'transcription' => $transcription,
+                'video_url'     => $url,
+                'video_title'   => isset($metrics['video_title']) ? $metrics['video_title'] : '',
+                'created_at'    => current_time('mysql'),
+            ];
+
             wp_send_json_success([
                 'transcription' => $transcription,
                 'analysis' => $analysis,
                 'short_url' => $short_url,
                 'cached' => false,
                 'nocache' => $nocache,
-                'model' => $used_model
+                'model' => $used_model,
+                'result_html' => vfc_render_result_html($result_obj),
             ]);
 
         } catch (\Exception $e) {
