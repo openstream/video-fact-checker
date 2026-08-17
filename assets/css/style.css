@@ -141,6 +141,25 @@ body .site-inner {
 .site-footer .site-info {
     color: var(--vfc-text-muted);
 }
+/* Inline code / preformatted blocks in post content (e.g. the How It Works
+   page). Twenty Sixteen hardcodes code{background:#d1d1d1}, which stays light in
+   dark mode; recolor via the variables. */
+.entry-content code,
+.entry-content kbd,
+.entry-content tt,
+.entry-content var,
+.entry-content samp {
+    background-color: var(--vfc-surface);
+    color: var(--vfc-text);
+}
+.entry-content pre {
+    background-color: var(--vfc-surface);
+    color: var(--vfc-text);
+}
+.entry-content abbr,
+.entry-content acronym {
+    border-bottom-color: var(--vfc-border-strong);
+}
 
 /* Form Container */
 .vfc-container {
