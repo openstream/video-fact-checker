@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.17.1
+ * Version: 0.18.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.17.1');
+define('VFC_VERSION', '0.18.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -128,6 +128,16 @@ function vfc_enqueue_scripts() {
 }
 add_action('wp_enqueue_scripts', 'vfc_enqueue_scripts');
 
+// FOUC guard: set <html data-vfc-theme> from the saved preference as early as
+// possible (before the browser paints), so a manually-chosen theme doesn't flash
+// the other one on load. No saved value => attribute stays unset => the CSS
+// prefers-color-scheme media query decides (follow the system).
+add_action('wp_head', function() {
+    ?>
+<script>(function(){try{var t=localStorage.getItem('vfc-theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-vfc-theme',t);}}catch(e){}})();</script>
+    <?php
+}, 0);
+
 // Customize the Twenty Sixteen footer credit. The theme renders, in .site-info:
 //   [twentysixteen_credits hook]
 //   <span class="site-title"><a href="{home_url}" rel="home">{site name}</a></span>
@@ -141,6 +151,15 @@ add_action('wp_enqueue_scripts', 'vfc_enqueue_scripts');
 // - A one-shot `bloginfo('name')` filter appends the version inside that link, then
 //   closes it and emits "powered by <model>" as plain (unlinked) text.
 add_action('twentysixteen_credits', function() {
+    // Dark-mode toggle, printed inside .site-info (before the credit text). A
+    // 2-state switch (light/dark); default follows the system (prefers-color-
+    // scheme) until the user picks one, remembered in localStorage. The actual
+    // theming is CSS via the --vfc-* variables in style.css. See the FOUC guard
+    // (vfc_theme_head_guard) and the click handler in video-fact-checker.js.
+    echo '<button type="button" class="vfc-theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">'
+        . '<span class="vfc-theme-toggle-icon" aria-hidden="true"></span>'
+        . '</button> ';
+
     // Nav links (Home / How It Works) now live in the header menu, not
     // here. The footer shows: "{Site Name vX (Beta)} → GitHub · powered by <model>
     // (cutoff …) · Privacy · Made by Openstream …".

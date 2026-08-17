@@ -1,4 +1,39 @@
 jQuery(document).ready(function($) {
+    // --- Dark-mode toggle (footer) ---------------------------------------
+    // 2-state switch. Default follows the system (prefers-color-scheme); once
+    // the user clicks, the choice is stored in localStorage and set as
+    // data-vfc-theme on <html> (which overrides the media query in CSS).
+    (function initThemeToggle() {
+        const root = document.documentElement;
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+
+        function effectiveTheme() {
+            const forced = root.getAttribute('data-vfc-theme');
+            if (forced === 'dark' || forced === 'light') return forced;
+            return mq.matches ? 'dark' : 'light';
+        }
+        function updateIcons() {
+            // Show the icon for the mode you'd switch TO (sun in dark, moon in light).
+            const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+            $('.vfc-theme-toggle').attr('aria-label', 'Switch to ' + next + ' mode')
+                .attr('title', 'Switch to ' + next + ' mode');
+        }
+        $(document).on('click', '.vfc-theme-toggle', function(e) {
+            e.preventDefault();
+            const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+            root.setAttribute('data-vfc-theme', next);
+            try { localStorage.setItem('vfc-theme', next); } catch (err) {}
+            updateIcons();
+        });
+        // Keep the icon in sync if the system theme changes while on "auto".
+        if (mq.addEventListener) {
+            mq.addEventListener('change', function() {
+                if (!root.getAttribute('data-vfc-theme')) updateIcons();
+            });
+        }
+        updateIcons();
+    })();
+
     const form = $('#vfc-form');
     const analyzeBtn = $('#analyze-btn');
     const progressContainer = $('#progress-container');

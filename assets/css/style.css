@@ -1,11 +1,156 @@
+/* =========================================================================
+   THEME COLORS (light + dark)
+   -------------------------------------------------------------------------
+   All colors go through these custom properties. Light values are the default
+   in :root; `prefers-color-scheme: dark` flips them automatically; and an
+   explicit data-vfc-theme attribute on <html> (set by the footer toggle) wins
+   over the system preference. Both the plugin's own elements AND the Twenty
+   Sixteen theme chrome (body/header/footer/links) read from these — so dark
+   mode lives entirely in the plugin, no theme edit / child theme.
+   ========================================================================= */
+:root {
+    --vfc-bg: #ffffff;            /* page background (theme .site card) */
+    --vfc-body-edge: #1a1a1a;     /* the frame/edge behind the .site card */
+    --vfc-surface: #f7f7f5;       /* result boxes / TOC / inputs */
+    --vfc-surface-2: #f9f9f9;     /* secondary panels */
+    --vfc-text: #1a1a1a;
+    --vfc-text-muted: #686868;
+    --vfc-border: #e6e6e6;
+    --vfc-border-strong: #d1d1d1;
+    --vfc-link: #007acc;
+    --vfc-link-hover: #005a99;
+    --vfc-accent: #2271b1;        /* primary button */
+    --vfc-accent-hover: #135e96;
+    --vfc-on-accent: #ffffff;
+    --vfc-notice-bg: #eef6fb;
+    --vfc-notice-border: #cfe4f2;
+    --vfc-notice-text: #21506e;
+    --vfc-error-bg: #fef4f4;
+    --vfc-error-border: #f3caca;
+    --vfc-error-accent: #dc3232;
+    --vfc-error-text: #8a1f1f;
+    --vfc-error-note: #a05252;
+    --vfc-card-shadow: rgba(0, 0, 0, 0.1);
+    --vfc-toc-rule: #c9c9c4;
+}
+
+/* Dark values — shared by the system preference and the manual "dark" toggle. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-vfc-theme="light"]) {
+        --vfc-bg: #1c1f24;
+        --vfc-body-edge: #0e1013;
+        --vfc-surface: #23272e;
+        --vfc-surface-2: #262a31;
+        --vfc-text: #e6e7e9;
+        --vfc-text-muted: #a4a9b2;
+        --vfc-border: #363b43;
+        --vfc-border-strong: #454b54;
+        --vfc-link: #5aa9ff;
+        --vfc-link-hover: #8cc4ff;
+        --vfc-accent: #3b8ed0;
+        --vfc-accent-hover: #57a3e0;
+        --vfc-on-accent: #0e1013;
+        --vfc-notice-bg: #14293a;
+        --vfc-notice-border: #245072;
+        --vfc-notice-text: #bcdcf5;
+        --vfc-error-bg: #3a1f1f;
+        --vfc-error-border: #7a3a3a;
+        --vfc-error-accent: #e06565;
+        --vfc-error-text: #f4baba;
+        --vfc-error-note: #d69a9a;
+        --vfc-card-shadow: rgba(0, 0, 0, 0.5);
+        --vfc-toc-rule: #4a4f57;
+    }
+}
+
+/* Manual override via the footer toggle (wins over the system preference). */
+:root[data-vfc-theme="dark"] {
+    --vfc-bg: #1c1f24;
+    --vfc-body-edge: #0e1013;
+    --vfc-surface: #23272e;
+    --vfc-surface-2: #262a31;
+    --vfc-text: #e6e7e9;
+    --vfc-text-muted: #a4a9b2;
+    --vfc-border: #363b43;
+    --vfc-border-strong: #454b54;
+    --vfc-link: #5aa9ff;
+    --vfc-link-hover: #8cc4ff;
+    --vfc-accent: #3b8ed0;
+    --vfc-accent-hover: #57a3e0;
+    --vfc-on-accent: #0e1013;
+    --vfc-notice-bg: #14293a;
+    --vfc-notice-border: #245072;
+    --vfc-notice-text: #bcdcf5;
+    --vfc-error-bg: #3a1f1f;
+    --vfc-error-border: #7a3a3a;
+    --vfc-error-accent: #e06565;
+    --vfc-error-text: #f4baba;
+    --vfc-error-note: #d69a9a;
+    --vfc-card-shadow: rgba(0, 0, 0, 0.5);
+    --vfc-toc-rule: #4a4f57;
+}
+/* (Light is the :root default, so data-vfc-theme="light" needs no extra block —
+   the :not([data-vfc-theme="light"]) guard above keeps the system dark rule off
+   when the user forced light.) */
+
+/* -------------------------------------------------------------------------
+   Twenty Sixteen theme chrome, recolored via the variables above (no theme
+   edit). These override the theme's hardcoded #fff / #1a1a1a / #007acc.
+   ------------------------------------------------------------------------- */
+/* Outer frame + page card. The theme uses `background: #1a1a1a` on body and
+   `background-color: #fff` on .site; override both (higher specificity via
+   html/.site-inner and the shorthand where needed). */
+html body {
+    background: var(--vfc-body-edge);
+}
+body .site {
+    background-color: var(--vfc-body-edge);
+}
+body .site-inner {
+    background-color: var(--vfc-bg);
+    color: var(--vfc-text);
+}
+.site-header,
+.site-footer {
+    background-color: var(--vfc-bg);
+}
+.entry-title,
+.entry-content,
+.page-title,
+.site-info,
+.site-inner h1, .site-inner h2, .site-inner h3,
+.site-inner h4, .site-inner h5, .site-inner h6 {
+    color: var(--vfc-text);
+}
+/* Links (match the theme's own specificity for nav so dark text can't win). */
+.entry-content a,
+.site-info a,
+.site-header .main-navigation a,
+.main-navigation a {
+    color: var(--vfc-link);
+    box-shadow: none;
+}
+.entry-content a:hover,
+.entry-content a:focus,
+.site-info a:hover,
+.site-header .main-navigation a:hover,
+.main-navigation a:hover,
+.main-navigation a:focus {
+    color: var(--vfc-link-hover);
+}
+.site-footer .site-info {
+    color: var(--vfc-text-muted);
+}
+
 /* Form Container */
 .vfc-container {
     max-width: 800px;
     margin: 20px auto;
     padding: 20px;
-    background: #fff;
+    background: var(--vfc-bg);
+    color: var(--vfc-text);
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px var(--vfc-card-shadow);
 }
 
 /* Input Form */
@@ -17,14 +162,19 @@
     width: 100%;
     padding: 10px;
     margin: 10px 0;
-    border: 1px solid #ddd;
+    background: var(--vfc-surface);
+    color: var(--vfc-text);
+    border: 1px solid var(--vfc-border-strong);
     border-radius: 4px;
     font-size: 16px;
 }
+#vfc-form input[type="url"]::placeholder {
+    color: var(--vfc-text-muted);
+}
 
 #analyze-btn {
-    background: #2271b1;
-    color: white;
+    background: var(--vfc-accent);
+    color: var(--vfc-on-accent);
     padding: 10px 20px;
     border: none;
     border-radius: 4px;
@@ -34,11 +184,12 @@
 }
 
 #analyze-btn:hover {
-    background: #135e96;
+    background: var(--vfc-accent-hover);
 }
 
 #analyze-btn:disabled {
-    background: #ccc;
+    background: var(--vfc-border-strong);
+    color: var(--vfc-text-muted);
     cursor: not-allowed;
 }
 
@@ -51,7 +202,7 @@
 .progress-bar {
     width: 100%;
     height: 20px;
-    background: #f0f0f0;
+    background: var(--vfc-surface);
     border-radius: 10px;
     margin: 10px 0;
     overflow: hidden;
@@ -68,7 +219,7 @@
     text-align: left;
     margin: 10px 0;
     font-weight: normal;
-    color: #444;
+    color: var(--vfc-text-muted);
 }
 
 /* Results Section */
@@ -80,22 +231,22 @@
 .result-section {
     margin-bottom: 20px;
     padding: 15px;
-    background: #f9f9f9;
+    background: var(--vfc-surface-2);
     border-radius: 4px;
-    border: 1px solid #eee;
+    border: 1px solid var(--vfc-border);
 }
 
 .result-section h3 {
     margin-top: 0;
-    color: #333;
-    border-bottom: 2px solid #ddd;
+    color: var(--vfc-text);
+    border-bottom: 2px solid var(--vfc-border-strong);
     padding-bottom: 10px;
     margin-bottom: 15px;
 }
 
 .content {
     line-height: 1.6;
-    color: #444;
+    color: var(--vfc-text);
 }
 
 #analysis-result {
@@ -116,13 +267,13 @@
 
 /* Error Messages */
 .error-message {
-    color: #8a1f1f;
-    background: #fef4f4;
+    color: var(--vfc-error-text);
+    background: var(--vfc-error-bg);
     padding: 12px 14px;
     border-radius: 6px;
     margin: 12px 0;
-    border: 1px solid #f3caca;
-    border-left: 4px solid #dc3232;
+    border: 1px solid var(--vfc-error-border);
+    border-left: 4px solid var(--vfc-error-accent);
     font-size: 14px;
     line-height: 1.4;
 }
@@ -135,7 +286,7 @@
     display: block;
     margin-top: 4px;
     font-size: 13px;
-    color: #a05252;
+    color: var(--vfc-error-note);
 }
 
 /* Responsive Design */
@@ -155,7 +306,7 @@
     margin: 10px 0;
     padding: 10px;
     border-left: 4px solid #4CAF50;
-    background: #f9f9f9;
+    background: var(--vfc-surface-2);
 }
 
 .fact-check-result.warning {
@@ -168,23 +319,23 @@
 
 /* Markdown Content Styling */
 .content pre {
-    background: #f4f4f4;
+    background: var(--vfc-surface);
     padding: 15px;
     border-radius: 4px;
     overflow-x: auto;
 }
 
 .content code {
-    background: #f4f4f4;
+    background: var(--vfc-surface);
     padding: 2px 5px;
     border-radius: 3px;
 }
 
 .content blockquote {
-    border-left: 4px solid #ddd;
+    border-left: 4px solid var(--vfc-border-strong);
     margin: 0;
     padding-left: 15px;
-    color: #666;
+    color: var(--vfc-text-muted);
 }
 
 .content ul, .content ol {
@@ -196,15 +347,15 @@
 }
 /* Version note appended to the site footer (via twentysixteen_credits hook) */
 .vfc-footer-version {
-    color: #999;
+    color: var(--vfc-text-muted);
 }
 
 /* Cache notice on cached results */
 .vfc-cache-notice {
-    background: #eef6fb;
-    border: 1px solid #cfe4f2;
-    border-left: 4px solid #2b7bb9;
-    color: #21506e;
+    background: var(--vfc-notice-bg);
+    border: 1px solid var(--vfc-notice-border);
+    border-left: 4px solid var(--vfc-link);
+    color: var(--vfc-notice-text);
     padding: 8px 12px;
     border-radius: 6px;
     margin: 0 0 14px;
@@ -261,7 +412,7 @@
 .vfc-recent {
     margin: 32px 0 0;
     padding-top: 20px;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--vfc-border);
 }
 .vfc-recent-title {
     font-size: 18px;
@@ -293,7 +444,7 @@
 }
 .vfc-recent-link:hover,
 .vfc-recent-link:focus {
-    background: #f7f7f5;
+    background: var(--vfc-surface);
 }
 .vfc-recent-icon {
     flex: 0 0 auto;
@@ -322,7 +473,7 @@
 .vfc-recent-date {
     flex: 0 0 auto;
     font-size: 13px;
-    color: #767676;
+    color: var(--vfc-text-muted);
 }
 
 /* -------------------------------------------------------------------------
@@ -336,7 +487,7 @@ html { scroll-behavior: smooth; }
 .video-fact-checker-result .video-info {
     margin-bottom: 24px;
     padding-bottom: 20px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--vfc-border);
 }
 .video-fact-checker-result .video-info .video-title {
     font-size: 20px;
@@ -352,15 +503,15 @@ html { scroll-behavior: smooth; }
     margin-bottom: 32px;
 }
 .video-fact-checker-result .content {
-    background: #f7f7f5;
+    background: var(--vfc-surface);
     padding: 16px;
     border-radius: 4px;
 }
 
 /* Table of contents: compact, tappable list of section links. */
 .video-fact-checker-result .vfc-toc {
-    background: #f7f7f5;
-    border-left: 3px solid #c9c9c4;
+    background: var(--vfc-surface);
+    border-left: 3px solid var(--vfc-toc-rule);
     border-radius: 4px;
     padding: 12px 16px 12px 20px;
     margin: 0 0 20px;
@@ -392,4 +543,46 @@ html { scroll-behavior: smooth; }
 /* Transcript is a normal section at the end (not collapsed); linked from the TOC. */
 .video-fact-checker-result .vfc-transcript > h2 {
     margin-top: 32px;
+}
+
+/* -------------------------------------------------------------------------
+   Dark-mode toggle in the footer (.site-info). A small button; the icon (moon
+   in light mode, sun in dark mode) is drawn with an emoji swapped via the
+   theme. Uses the same --vfc-* variables so it fits both modes.
+   ------------------------------------------------------------------------- */
+.site-info .vfc-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9em;
+    height: 1.9em;
+    padding: 0;
+    margin-right: 6px;
+    vertical-align: middle;
+    background: transparent;
+    border: 1px solid var(--vfc-border-strong);
+    border-radius: 999px;
+    color: var(--vfc-text-muted);
+    cursor: pointer;
+    line-height: 1;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.site-info .vfc-theme-toggle:hover,
+.site-info .vfc-theme-toggle:focus {
+    color: var(--vfc-text);
+    border-color: var(--vfc-text-muted);
+    background: var(--vfc-surface);
+    box-shadow: none;
+}
+.vfc-theme-toggle-icon::before {
+    content: '\1F319'; /* 🌙 shown in light mode — click to go dark */
+    font-size: 0.95em;
+}
+:root[data-vfc-theme="dark"] .vfc-theme-toggle-icon::before {
+    content: '\2600'; /* ☀ shown in dark mode — click to go light */
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-vfc-theme="light"]) .vfc-theme-toggle-icon::before {
+        content: '\2600';
+    }
 }
