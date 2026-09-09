@@ -12,26 +12,16 @@ jQuery(document).ready(function($) {
             if (forced === 'dark' || forced === 'light') return forced;
             return mq.matches ? 'dark' : 'light';
         }
-        function updateIcons() {
-            // Show the icon for the mode you'd switch TO (sun in dark, moon in light).
-            const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
-            $('.vfc-theme-toggle').attr('aria-label', 'Switch to ' + next + ' mode')
-                .attr('title', 'Switch to ' + next + ' mode');
-        }
+        // The link's visible label ("Dark mode" / "Light mode") is switched by CSS
+        // off data-vfc-theme / prefers-color-scheme, so there is nothing to sync
+        // here — not on click, and not when the system theme changes while on
+        // "auto". Flipping the attribute below is enough for the label to follow.
         $(document).on('click', '.vfc-theme-toggle', function(e) {
             e.preventDefault();
             const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
             root.setAttribute('data-vfc-theme', next);
             try { localStorage.setItem('vfc-theme', next); } catch (err) {}
-            updateIcons();
         });
-        // Keep the icon in sync if the system theme changes while on "auto".
-        if (mq.addEventListener) {
-            mq.addEventListener('change', function() {
-                if (!root.getAttribute('data-vfc-theme')) updateIcons();
-            });
-        }
-        updateIcons();
     })();
 
     const form = $('#vfc-form');

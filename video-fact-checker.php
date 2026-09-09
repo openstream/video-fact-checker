@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.19.0
+ * Version: 0.20.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.19.0');
+define('VFC_VERSION', '0.20.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -87,12 +87,11 @@ function vfc_render_form() {
     ob_start();
     include VFC_PLUGIN_DIR . 'templates/frontend-form.php';
 
-    // Show the most recently fact-checked videos under the form, linking to
-    // their public share pages (helps discovery + gives crawlers internal links).
-    $vfc_recent = (new VideoFactChecker\CacheManager())->get_recent_transcriptions(3);
-    if (!empty($vfc_recent)) {
-        include VFC_PLUGIN_DIR . 'templates/recent-checks.php';
-    }
+    // The "Recently fact-checked" list that used to sit under the form is gone —
+    // the front page is just the form again. templates/recent-checks.php and
+    // CacheManager::get_recent_transcriptions() are kept: the crawler-facing
+    // internal links they provided also come from the XML sitemap
+    // (class-sitemap-provider.php), and the template is cheap to re-include.
 
     return ob_get_clean();
 }
@@ -139,7 +138,12 @@ add_action('wp_head', function() {
 }, 0);
 
 /**
- * Footer nav links (Home · How It Works) — these replace the header nav menu.
+ * Footer nav row (Home · How It Works · Privacy Policy · dark-mode switch) —
+ * replaces the header menu.
+ *
+ * Printed as its own line ABOVE the credit line, because it is emitted from the
+ * `twentysixteen_credits` hook, which the theme fires before it prints the
+ * site-title; `.vfc-footer-nav` is a block, so the credit text wraps below it.
  *
  * Home matters because the theme's own header site-title (which would link home)
  * is hidden via the customizer's `header_textcolor: blank`, and the footer's
@@ -150,49 +154,92 @@ add_action('wp_head', function() {
  * flag is up, the `home_url` filter below rewrites every home URL to the GitHub
  * tag, which would silently turn this Home link into a GitHub link.
  *
- * "How It Works" is looked up by page path so it survives a renamed/reordered
- * menu, and is skipped if the page is missing (e.g. a fresh install).
+ * The privacy link is rendered here too, so all three nav links sit together;
+ * the theme's own copy (printed after the site-title) is suppressed via the
+ * `the_privacy_policy_link` filter below. "How It Works" is looked up by page
+ * path so it survives a rename, and is skipped if the page is missing.
  */
-function vfc_footer_nav_links() {
-    $sep = ' <span role="separator" aria-hidden="true"></span> ';
+function vfc_footer_nav_row() {
+    $items = [];
 
-    $html = $sep . '<a class="vfc-footer-nav-link" href="' . esc_url(home_url('/')) . '">'
+    $items[] = '<a class="vfc-footer-nav-link" href="' . esc_url(home_url('/')) . '">'
         . esc_html__('Home', 'video-fact-checker') . '</a>';
 
     $page = get_page_by_path('how-it-works');
     if ($page && $page->post_status === 'publish') {
-        $html .= $sep . '<a class="vfc-footer-nav-link" href="' . esc_url(get_permalink($page)) . '">'
+        $items[] = '<a class="vfc-footer-nav-link" href="' . esc_url(get_permalink($page)) . '">'
             . esc_html(get_the_title($page)) . '</a>';
     }
 
-    return $html;
+    // get_the_privacy_policy_link() returns '' when no privacy page is set.
+    $privacy = function_exists('get_the_privacy_policy_link') ? get_the_privacy_policy_link() : '';
+    if ($privacy !== '') {
+        $items[] = $privacy;
+    }
+
+    // Dark-mode switch, as a plain text link like its neighbours. Both labels are
+    // rendered and CSS shows only the one matching the active theme — the label
+    // must track a theme the server cannot know (system preference, or the
+    // visitor's localStorage choice applied by the FOUC guard), and picking it in
+    // JS after load would flash the wrong word. href="#" keeps it keyboard- and
+    // middle-click-sane; the click handler in video-fact-checker.js
+    // preventDefault()s it (it binds on .vfc-theme-toggle, so a link works as
+    // well as the old button did).
+    $items[] = '<a class="vfc-theme-toggle vfc-footer-nav-link" href="#" role="button">'
+        . '<span class="vfc-theme-label-dark">' . esc_html__('Dark mode', 'video-fact-checker') . '</span>'
+        . '<span class="vfc-theme-label-light">' . esc_html__('Light mode', 'video-fact-checker') . '</span>'
+        . '</a>';
+
+    $sep = ' <span role="separator" aria-hidden="true"></span> ';
+
+    return '<div class="vfc-footer-nav">' . implode($sep, $items) . '</div>';
 }
+
+/**
+ * Drop the theme's own privacy link — vfc_footer_nav_row() already prints one in
+ * the nav row above the credit line, and two would be redundant.
+ *
+ * Uses its own flag rather than `vfc_in_footer_credits`: that one is cleared by
+ * the `bloginfo` filter while the site-title is being built, which happens
+ * BEFORE the theme prints its privacy link — so it would already be false here.
+ * This flag stays up for the rest of the footer instead.
+ */
+add_filter('the_privacy_policy_link', function($link) {
+    return !empty($GLOBALS['vfc_suppress_theme_privacy_link']) ? '' : $link;
+}, 10, 1);
 
 // Customize the Twenty Sixteen footer credit. The theme renders, in .site-info:
 //   [twentysixteen_credits hook]
 //   <span class="site-title"><a href="{home_url}" rel="home">{site name}</a></span>
 //   {privacy link}  <a class="imprint">Proudly powered by WordPress</a>
 //
-// We want:  {Site Name vX (Beta)} → GitHub tag · powered by <model> (cutoff …) ·
-//           Home · How It Works · Privacy · Made by Openstream …
+// We want, on two lines:
+//   Home · How It Works · Privacy Policy · Dark mode
+//   {Site Name vX (Beta)} → GitHub tag  powered by <model> (cutoff …) · Made by …
 //
+// - The nav row is echoed from the credits hook (so it lands above everything) and
+//   the theme's own privacy link is filtered out, since that row already has one.
 // - A `home_url` filter (active only during the credits) points the site-title link
 //   at the current GitHub release tag instead of home.
 // - A one-shot `bloginfo('name')` filter appends the version inside that link, then
-//   closes it and emits "powered by <model>" plus the nav links as plain text.
+//   closes it and emits "powered by <model>" as plain (unlinked) text.
 add_action('twentysixteen_credits', function() {
-    // Dark-mode toggle, printed inside .site-info (before the credit text). A
-    // 2-state switch (light/dark); default follows the system (prefers-color-
-    // scheme) until the user picks one, remembered in localStorage. The actual
-    // theming is CSS via the --vfc-* variables in style.css. See the FOUC guard
-    // (vfc_theme_head_guard) and the click handler in video-fact-checker.js.
-    echo '<button type="button" class="vfc-theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">'
-        . '<span class="vfc-theme-toggle-icon" aria-hidden="true"></span>'
-        . '</button> ';
+    // The header nav menu is gone (see the CSS that hides it); its links, plus the
+    // dark-mode switch, live on their own line above the credit text:
+    //
+    //   Home · How It Works · Privacy Policy · Dark mode
+    //   {Site Name vX (Beta)} → GitHub  powered by <model> · Made by …
+    //
+    // This runs before the theme prints the site-title, so echoing the nav row
+    // first puts it on top; it is a block element, so the credit text that the
+    // theme prints after it wraps onto the line below.
+    // NOTE: build it BEFORE vfc_in_footer_credits goes up — while that flag is
+    // set, the home_url filter returns the GitHub tag and would break Home.
+    echo vfc_footer_nav_row(); // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts
 
-    // The header nav menu is gone (see the CSS that hides it); its links live here
-    // now. The footer shows: "{Site Name vX (Beta)} → GitHub · powered by <model>
-    // (cutoff …) · Home · How It Works · Privacy · Made by Openstream …".
+    // From here on the theme's own privacy link is redundant (we just printed one).
+    $GLOBALS['vfc_suppress_theme_privacy_link'] = true;
+
     // The site title is printed by the theme right after this hook; we point its
     // link at the GitHub tag and append the version to it (via the filters below).
     // Then the model is shown as plain text right after (no "model:" label).
@@ -201,13 +248,9 @@ add_action('twentysixteen_credits', function() {
     $model_label = $model . ($cutoff ? ' (cutoff ' . $cutoff . ')' : '');
     // Stash the model note; it is emitted by the bloginfo filter right after the
     // site-title link closes, so it reads directly after the version (no leading
-    // separator, no "model:" prefix). The nav links ride along after it so they
-    // land before the theme's own privacy link.
-    // NOTE: build the nav links FIRST — vfc_in_footer_credits (set below) makes the
-    // home_url filter return the GitHub tag, which would break the Home link.
-    $nav_links = vfc_footer_nav_links();
+    // separator, no "model:" prefix).
     $GLOBALS['vfc_footer_model_html'] = ' <span class="vfc-footer-model-text">powered by '
-        . esc_html($model_label) . '</span>' . $nav_links;
+        . esc_html($model_label) . '</span>';
 
     $GLOBALS['vfc_in_footer_credits'] = true;
     $GLOBALS['vfc_append_version_to_name'] = true;

@@ -415,6 +415,14 @@ body .site-inner {
     content: '\00b7' !important;
 }
 
+/* Nav row (Home · How It Works · Privacy Policy · dark-mode switch) on its own
+   line above the credit text. Echoed from the credits hook before anything else,
+   so being a block is all it takes to claim the first line; the small bottom
+   margin keeps it visually tied to the credit line rather than floating free. */
+.vfc-footer-nav {
+    margin-bottom: 6px;
+}
+
 /* -------------------------------------------------------------------------
    "Recently fact-checked" list under the form on the home page.
    ------------------------------------------------------------------------- */
@@ -559,39 +567,35 @@ html { scroll-behavior: smooth; }
    in light mode, sun in dark mode) is drawn with an emoji swapped via the
    theme. Uses the same --vfc-* variables so it fits both modes.
    ------------------------------------------------------------------------- */
+/* The switch is a plain text link in the footer nav row, styled like its
+   neighbours (it inherits their colour from .site-info a). Only the cursor is
+   forced: it is an <a href="#">, and some UAs would otherwise not show a
+   pointer. */
 .site-info .vfc-theme-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.9em;
-    height: 1.9em;
-    padding: 0;
-    margin-right: 6px;
-    vertical-align: middle;
-    background: transparent;
-    border: 1px solid var(--vfc-border-strong);
-    border-radius: 999px;
-    color: var(--vfc-text-muted);
     cursor: pointer;
-    line-height: 1;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
-.site-info .vfc-theme-toggle:hover,
-.site-info .vfc-theme-toggle:focus {
-    color: var(--vfc-text);
-    border-color: var(--vfc-text-muted);
-    background: var(--vfc-surface);
-    box-shadow: none;
+
+/* Show the label for the mode you would switch TO: "Dark mode" while light,
+   "Light mode" while dark. Both labels are in the HTML and CSS picks one, so the
+   correct word is painted on the first frame — the active theme depends on the
+   system preference or a localStorage choice, neither of which the server knows.
+   Light is the base state; the two dark selectors mirror the theming above:
+   an explicit data-vfc-theme="dark", or the system preference when the visitor
+   has not explicitly chosen light. */
+.vfc-theme-label-light {
+    display: none;
 }
-.vfc-theme-toggle-icon::before {
-    content: '\1F319'; /* 🌙 shown in light mode — click to go dark */
-    font-size: 0.95em;
+:root[data-vfc-theme="dark"] .vfc-theme-label-dark {
+    display: none;
 }
-:root[data-vfc-theme="dark"] .vfc-theme-toggle-icon::before {
-    content: '\2600'; /* ☀ shown in dark mode — click to go light */
+:root[data-vfc-theme="dark"] .vfc-theme-label-light {
+    display: inline;
 }
 @media (prefers-color-scheme: dark) {
-    :root:not([data-vfc-theme="light"]) .vfc-theme-toggle-icon::before {
-        content: '\2600';
+    :root:not([data-vfc-theme="light"]) .vfc-theme-label-dark {
+        display: none;
+    }
+    :root:not([data-vfc-theme="light"]) .vfc-theme-label-light {
+        display: inline;
     }
 }
