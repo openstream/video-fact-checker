@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.18.1
+ * Version: 0.19.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.18.1');
+define('VFC_VERSION', '0.19.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -138,18 +138,48 @@ add_action('wp_head', function() {
     <?php
 }, 0);
 
+/**
+ * Footer nav links (Home · How It Works) — these replace the header nav menu.
+ *
+ * Home matters because the theme's own header site-title (which would link home)
+ * is hidden via the customizer's `header_textcolor: blank`, and the footer's
+ * site-title deliberately points at the GitHub release tag instead — so without
+ * this there is no visible way back to the front page from a subpage.
+ *
+ * MUST be called BEFORE `$GLOBALS['vfc_in_footer_credits']` is set: while that
+ * flag is up, the `home_url` filter below rewrites every home URL to the GitHub
+ * tag, which would silently turn this Home link into a GitHub link.
+ *
+ * "How It Works" is looked up by page path so it survives a renamed/reordered
+ * menu, and is skipped if the page is missing (e.g. a fresh install).
+ */
+function vfc_footer_nav_links() {
+    $sep = ' <span role="separator" aria-hidden="true"></span> ';
+
+    $html = $sep . '<a class="vfc-footer-nav-link" href="' . esc_url(home_url('/')) . '">'
+        . esc_html__('Home', 'video-fact-checker') . '</a>';
+
+    $page = get_page_by_path('how-it-works');
+    if ($page && $page->post_status === 'publish') {
+        $html .= $sep . '<a class="vfc-footer-nav-link" href="' . esc_url(get_permalink($page)) . '">'
+            . esc_html(get_the_title($page)) . '</a>';
+    }
+
+    return $html;
+}
+
 // Customize the Twenty Sixteen footer credit. The theme renders, in .site-info:
 //   [twentysixteen_credits hook]
 //   <span class="site-title"><a href="{home_url}" rel="home">{site name}</a></span>
 //   {privacy link}  <a class="imprint">Proudly powered by WordPress</a>
 //
 // We want:  {Site Name vX (Beta)} → GitHub tag · powered by <model> (cutoff …) ·
-//           Privacy · Made by Openstream …
+//           Home · How It Works · Privacy · Made by Openstream …
 //
 // - A `home_url` filter (active only during the credits) points the site-title link
 //   at the current GitHub release tag instead of home.
 // - A one-shot `bloginfo('name')` filter appends the version inside that link, then
-//   closes it and emits "powered by <model>" as plain (unlinked) text.
+//   closes it and emits "powered by <model>" plus the nav links as plain text.
 add_action('twentysixteen_credits', function() {
     // Dark-mode toggle, printed inside .site-info (before the credit text). A
     // 2-state switch (light/dark); default follows the system (prefers-color-
@@ -160,9 +190,9 @@ add_action('twentysixteen_credits', function() {
         . '<span class="vfc-theme-toggle-icon" aria-hidden="true"></span>'
         . '</button> ';
 
-    // Nav links (Home / How It Works) now live in the header menu, not
-    // here. The footer shows: "{Site Name vX (Beta)} → GitHub · powered by <model>
-    // (cutoff …) · Privacy · Made by Openstream …".
+    // The header nav menu is gone (see the CSS that hides it); its links live here
+    // now. The footer shows: "{Site Name vX (Beta)} → GitHub · powered by <model>
+    // (cutoff …) · Home · How It Works · Privacy · Made by Openstream …".
     // The site title is printed by the theme right after this hook; we point its
     // link at the GitHub tag and append the version to it (via the filters below).
     // Then the model is shown as plain text right after (no "model:" label).
@@ -171,9 +201,13 @@ add_action('twentysixteen_credits', function() {
     $model_label = $model . ($cutoff ? ' (cutoff ' . $cutoff . ')' : '');
     // Stash the model note; it is emitted by the bloginfo filter right after the
     // site-title link closes, so it reads directly after the version (no leading
-    // separator, no "model:" prefix).
+    // separator, no "model:" prefix). The nav links ride along after it so they
+    // land before the theme's own privacy link.
+    // NOTE: build the nav links FIRST — vfc_in_footer_credits (set below) makes the
+    // home_url filter return the GitHub tag, which would break the Home link.
+    $nav_links = vfc_footer_nav_links();
     $GLOBALS['vfc_footer_model_html'] = ' <span class="vfc-footer-model-text">powered by '
-        . esc_html($model_label) . '</span>';
+        . esc_html($model_label) . '</span>' . $nav_links;
 
     $GLOBALS['vfc_in_footer_credits'] = true;
     $GLOBALS['vfc_append_version_to_name'] = true;

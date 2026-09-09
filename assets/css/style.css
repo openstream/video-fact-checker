@@ -381,28 +381,25 @@ body .site-inner {
     font-size: 13px;
 }
 
-/* Header navigation: always-visible (no burger) on all screen sizes.
-   Twenty Sixteen hides the primary menu behind a #menu-toggle on mobile; we
-   suppress that and keep the menu shown as a simple horizontal bar. */
-.menu-toggle {
+/* No header navigation at all. The site has exactly two pages, so the menu
+   (Home / How It Works) earned its keep less than the vertical space it cost —
+   both links now live in the footer credits instead (vfc_footer_nav_links()).
+   Hide the menu, its mobile burger, and the theme's second copy of the menu that
+   Twenty Sixteen renders inside the footer on small screens. */
+.menu-toggle,
+.site-header-menu,
+.main-navigation,
+.site-footer .main-navigation,
+.site-footer .site-header-menu {
     display: none !important;
 }
-.site-header-menu {
-    display: block !important;   /* theme toggles this closed on mobile */
-}
-.main-navigation .primary-menu {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0 24px;
-    border: 0;
-}
-.main-navigation li {
-    border: 0;
-    float: none;
-}
-.main-navigation .primary-menu > li > a {
-    padding: 8px 0;
+
+/* With the menu gone, Twenty Sixteen's header padding (84px top and bottom at
+   >= 61.5625em, plus the menu's own 28px margins) left a large empty gap above
+   the H1. Tighten it; the header now holds nothing but that padding. */
+.site-header {
+    padding-top: 24px !important;
+    padding-bottom: 24px !important;
 }
 
 
@@ -416,13 +413,6 @@ body .site-inner {
 /* The theme also puts a slash after the footer site-title; make it a dot too. */
 .site-footer .site-title::after {
     content: '\00b7' !important;
-}
-
-/* Twenty Sixteen renders the primary menu a second time inside the footer (shown
-   on small screens). We only want it in the header, so hide the footer copy. */
-.site-footer .main-navigation,
-.site-footer .site-header-menu {
-    display: none !important;
 }
 
 /* -------------------------------------------------------------------------
