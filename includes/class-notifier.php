@@ -2,18 +2,30 @@
 namespace VideoFactChecker;
 
 /**
- * Email notifications for the plugin:
- *   - notify_error():  sent to the admin when a fact-check run fails.
- *   - send_daily_log(): the full log file, mailed once a day (WP-Cron), then rotated.
+ * Admin notifications for the plugin:
+ *   - notify_error():       a fact-check run failed (proxy 407s get a Decodo hint).
+ *   - check_daily_budget(): today's spend crossed the configured budget.
+ *   - send_daily_log():     rotates the log; mails it first when no Slack is set.
+ *   - send():               shared channel for every other alert (health check,
+ *                           model watcher, Decodo monitor).
  *
- * Recipient defaults to the WordPress admin email and can be overridden with the
- * `vfc_notify_email` option or the `vfc_notify_email` filter.
+ * Channel: Slack (incoming webhook in `vfc_slack_webhook_url`) when configured,
+ * otherwise wp_mail to the `vfc_notify_email` option / `vfc_notify_email` filter /
+ * site admin email. Slack exists because the prod droplet can't deliver mail
+ * (DigitalOcean blocks outbound port 25), so wp_mail "succeeds" into a queue
+ * that never drains.
  */
 class Notifier {
 
     // Don't send the same error twice within this window (seconds), to avoid a
-    // mail flood when the same failure repeats (e.g. a dead proxy).
+    // flood when the same failure repeats (e.g. a dead proxy).
     const DEDUPE_WINDOW = 600; // 10 minutes
+
+    // A dead proxy fails every YouTube run; one Decodo alert per hour is enough.
+    const PROXY_DEDUPE_WINDOW = HOUR_IN_SECONDS;
+
+    // Slack renders up to ~40k chars, but long code blocks are unreadable.
+    const SLACK_MAX_BODY = 3500;
 
     private $logger;
 
@@ -29,8 +41,75 @@ class Notifier {
         return apply_filters('vfc_notify_email', $email);
     }
 
+    private function slack_webhook() {
+        $url = get_option('vfc_slack_webhook_url', '');
+        return is_string($url) ? trim($url) : '';
+    }
+
     /**
-     * Email the admin about a failed run. De-duplicated per error signature.
+     * Send an alert to Slack (if configured) or by email. Returns true on success.
+     *
+     * @param string $title  Short headline, without the site name (added here).
+     * @param string $body   Plain-text details.
+     */
+    public function send($title, $body) {
+        $site = wp_parse_url(home_url(), PHP_URL_HOST);
+
+        $webhook = $this->slack_webhook();
+        if ($webhook !== '') {
+            if ($this->post_to_slack($webhook, $title, $body, $site)) {
+                return true;
+            }
+            // Fall through to mail so a broken webhook doesn't swallow the alert.
+        }
+
+        $to = $this->recipient();
+        if (!$to || !is_email($to)) {
+            return false;
+        }
+        $sent = wp_mail($to, sprintf('[Video Fact Checker] %s on %s', $title, $site), $body);
+        $this->logger->log("Alert mail " . ($sent ? "handed to MTA" : "FAILED") . " for {$to}: {$title}");
+        return $sent;
+    }
+
+    private function post_to_slack($webhook, $title, $body, $site) {
+        $body = trim($body);
+        if (strlen($body) > self::SLACK_MAX_BODY) {
+            $body = substr($body, 0, self::SLACK_MAX_BODY) . "\n…";
+        }
+        $text = '*' . $title . '* · ' . $site;
+        if ($body !== '') {
+            $text .= "\n```" . $body . "```";
+        }
+
+        $response = wp_remote_post($webhook, [
+            'headers' => ['Content-Type' => 'application/json'],
+            'body'    => wp_json_encode(['text' => $text]),
+            'timeout' => 10,
+        ]);
+        if (is_wp_error($response)) {
+            $this->logger->log("Slack alert FAILED ({$title}): " . $response->get_error_message(), 'error');
+            return false;
+        }
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            $this->logger->log("Slack alert FAILED ({$title}): HTTP {$code} " . substr((string) wp_remote_retrieve_body($response), 0, 200), 'error');
+            return false;
+        }
+        $this->logger->log("Slack alert sent: {$title}");
+        return true;
+    }
+
+    /** True when an error text points at the proxy refusing us (Decodo out of traffic/balance). */
+    public static function is_proxy_auth_error($text) {
+        // \b keeps a "407" inside a numeric video id (TikTok, X) from matching.
+        return preg_match('/\b407\b/', $text) === 1
+            || stripos($text, 'proxy authentication failed') !== false
+            || stripos($text, 'proxy traffic limit') !== false;
+    }
+
+    /**
+     * Notify the admin about a failed run. De-duplicated per error signature.
      *
      * @param string $user_message  The concise message shown to the user.
      * @param string $raw_details   The real reason (yt-dlp/HTTP error line, proxy
@@ -41,37 +120,45 @@ class Notifier {
      * @param string $stage         Which step failed, in plain words (optional).
      */
     public function notify_error($user_message, $raw_details = '', $url = '', $ref = '', $stage = '') {
-        $to = $this->recipient();
-        if (!$to || !is_email($to)) {
-            return;
-        }
+        $proxy_problem = self::is_proxy_auth_error($user_message . ' ' . $raw_details);
 
-        // De-dupe: skip if an identical error signature was mailed very recently.
-        $sig = 'vfc_notified_' . md5($user_message . '|' . $url);
+        // De-dupe: skip if an identical error signature was sent very recently.
+        // Proxy failures share one key, since every YouTube URL hits the same wall.
+        if ($proxy_problem) {
+            $sig = 'vfc_notified_proxy407';
+            $window = self::PROXY_DEDUPE_WINDOW;
+        } else {
+            $sig = 'vfc_notified_' . md5($user_message . '|' . $url);
+            $window = self::DEDUPE_WINDOW;
+        }
         if (get_transient($sig)) {
-            $this->logger->log("Admin error mail suppressed (deduped): " . $user_message);
+            $this->logger->log("Admin alert suppressed (deduped): " . $user_message);
             return;
         }
-        set_transient($sig, 1, self::DEDUPE_WINDOW);
+        set_transient($sig, 1, $window);
 
-        $site = wp_parse_url(home_url(), PHP_URL_HOST);
-        $subject = sprintf('[Video Fact Checker] Error on %s', $site);
+        $title = $proxy_problem
+            ? 'Decodo proxy refused the connection (407): traffic or balance likely used up'
+            : 'Fact-check failed';
 
-        $body  = "A fact-check run failed.\n\n";
+        $body = '';
+        if ($proxy_problem) {
+            $body .= "Top up or enable auto-recharge at https://dashboard.decodo.com/ — YouTube videos\n";
+            $body .= "without directly reachable subtitles fail until then.\n\n";
+        }
         if ($stage !== '') { $body .= "What failed:\n  " . $stage . "\n\n"; }
         if ($raw_details !== '') { $body .= "Reason:\n  " . $raw_details . "\n\n"; }
         $body .= "Message shown to user:\n  " . $user_message . "\n\n";
         if ($url !== '')   { $body .= "Video URL:\n  " . $url . "\n\n"; }
         if ($ref !== '')   { $body .= "Log reference:\n  " . $ref . "\n\n"; }
         $body .= "Time: " . current_time('Y-m-d H:i:s') . "\n";
-        $body .= "Full log is mailed daily and stored at " . $this->logger->get_log_file() . "\n";
+        $body .= "Log: " . $this->logger->get_log_file() . "\n";
 
-        $sent = wp_mail($to, $subject, $body);
-        $this->logger->log("Admin error mail " . ($sent ? "sent" : "FAILED") . " to " . $to);
+        $this->send($title, $body);
     }
 
     /**
-     * If today's spend exceeds the configured daily budget, email the admin.
+     * If today's spend exceeds the configured daily budget, alert the admin.
      * De-duplicated per day so at most one alert per calendar day is sent.
      */
     public function check_daily_budget() {
@@ -80,11 +167,6 @@ class Notifier {
             return; // budget alerts disabled
         }
         $budget = (float) $budget;
-
-        $to = $this->recipient();
-        if (!$to || !is_email($to)) {
-            return;
-        }
 
         $cache = new CacheManager();
         $today_start = current_time('Y-m-d') . ' 00:00:00';
@@ -102,8 +184,6 @@ class Notifier {
         }
         set_transient($day_key, 1, DAY_IN_SECONDS);
 
-        $site = wp_parse_url(home_url(), PHP_URL_HOST);
-        $subject = sprintf('[Video Fact Checker] Daily budget exceeded on %s', $site);
         $budget_str = $budget < 1 ? rtrim(rtrim(sprintf('%.4f', $budget), '0'), '.') : sprintf('%.2f', $budget);
         $body  = sprintf("Today's fact-check spend has reached \$%.4f, exceeding the daily budget of \$%s.\n\n",
             $spent, $budget_str);
@@ -113,51 +193,43 @@ class Notifier {
         $body .= sprintf("  Proxy:   \$%.4f\n", $summary ? (float) $summary->proxy_cost : 0);
         $body .= "\nTime: " . current_time('Y-m-d H:i:s') . "\n";
 
-        $sent = wp_mail($to, $subject, $body);
-        $this->logger->log("Daily budget alert " . ($sent ? "sent" : "FAILED") . " to {$to} (spent \${$spent} / budget \${$budget})");
+        $this->send('Daily budget exceeded', $body);
     }
 
     /**
-     * Mail the full log file as an attachment, then rotate (truncate) it so it
-     * doesn't grow without bound. Intended to run once a day via WP-Cron.
+     * Rotate the log once a day (WP-Cron). Without Slack the log is mailed first,
+     * as before; with Slack there's nothing to attach it to, so it's only rotated.
+     * Rotation keeps yesterday's log as `<log>.1` either way, so it never again
+     * hinges on a mail being delivered.
      */
     public function send_daily_log() {
-        $to = $this->recipient();
-        if (!$to || !is_email($to)) {
-            return;
-        }
-
         $log_file = $this->logger->get_log_file();
-        $site = wp_parse_url(home_url(), PHP_URL_HOST);
-        $date = current_time('Y-m-d');
-        $subject = sprintf('[Video Fact Checker] Daily log %s (%s)', $date, $site);
-
         if (!file_exists($log_file) || filesize($log_file) === 0) {
-            wp_mail($to, $subject, "No log entries in the last 24 hours.");
             return;
         }
 
-        // Copy to a dated temp file so the attachment has a meaningful name and
-        // we can safely rotate the original afterwards.
-        $tmp = trailingslashit(sys_get_temp_dir()) . 'video-fact-checker-' . $date . '.log';
-        $copied = @copy($log_file, $tmp);
-        $attachment = $copied ? $tmp : $log_file;
-
-        $body  = "Attached is the Video Fact Checker log for the period ending {$date}.\n";
-        $body .= "The log has been rotated (cleared) after sending.\n";
-
-        $sent = wp_mail($to, $subject, $body, [], [$attachment]);
-
-        if ($copied) {
-            @unlink($tmp);
+        if ($this->slack_webhook() === '') {
+            $to = $this->recipient();
+            if ($to && is_email($to)) {
+                $site = wp_parse_url(home_url(), PHP_URL_HOST);
+                $date = current_time('Y-m-d');
+                $subject = sprintf('[Video Fact Checker] Daily log %s (%s)', $date, $site);
+                $body  = "Attached is the Video Fact Checker log for the period ending {$date}.\n";
+                $body .= "The log has been rotated after sending.\n";
+                $sent = wp_mail($to, $subject, $body, [], [$log_file]);
+                $this->logger->log("Daily log mail " . ($sent ? "handed to MTA" : "FAILED") . " for {$to}.");
+            }
         }
 
-        if ($sent) {
-            // Rotate: truncate the live log so the next day starts fresh.
-            @file_put_contents($log_file, '');
-            $this->logger->log("Daily log mailed to {$to} and rotated.");
+        $this->rotate_log($log_file);
+    }
+
+    private function rotate_log($log_file) {
+        if (@rename($log_file, $log_file . '.1')) {
+            @touch($log_file);
+            $this->logger->log("Log rotated (previous day kept as " . basename($log_file) . ".1).");
         } else {
-            $this->logger->log("Daily log mail FAILED to {$to}; log NOT rotated.", 'error');
+            $this->logger->log("Log rotation FAILED for {$log_file}.", 'error');
         }
     }
 }

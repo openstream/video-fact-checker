@@ -142,20 +142,10 @@ class ModelWatcher {
     }
 
     /**
-     * Email the admin about newly-available models, with next steps.
+     * Tell the admin (Slack or email, via Notifier) about newly-available models,
+     * with next steps.
      */
     private function notify($new_models) {
-        $email = get_option('vfc_notify_email', '');
-        if (!is_string($email) || $email === '' || !is_email($email)) {
-            $email = get_option('admin_email');
-        }
-        if (!$email || !is_email($email)) {
-            return;
-        }
-
-        $site    = wp_parse_url(home_url(), PHP_URL_HOST);
-        $subject = sprintf('[Video Fact Checker] New OpenAI model available on %s', $site);
-
         $current_model = get_option('vfc_openai_model', '(none)');
         $current_cutoff = CostCalculator::cutoff_for($current_model);
 
@@ -180,7 +170,6 @@ class ModelWatcher {
         $body .= "     model under Settings → Fact Checker.\n\n";
         $body .= "Time: " . current_time('Y-m-d H:i:s') . "\n";
 
-        $sent = wp_mail($email, $subject, $body);
-        $this->logger->log('ModelWatcher: new-model email ' . ($sent ? 'sent' : 'FAILED') . ' to ' . $email);
+        (new Notifier($this->logger))->send('New OpenAI model available', $body);
     }
 }

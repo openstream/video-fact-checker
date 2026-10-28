@@ -518,7 +518,7 @@ class VideoProcessor {
         return $command;
     }
 
-    private function build_youtube_proxy() {
+    public function build_youtube_proxy() {
         $address = trim(get_option('vfc_ytdlp_proxy_address', ''));
         $port = trim(get_option('vfc_ytdlp_proxy_port', ''));
         $username = trim(get_option('vfc_ytdlp_proxy_username', ''));
@@ -820,29 +820,14 @@ class VideoProcessor {
         return $scheme . '://' . $host . $port . $path . $query;
     }
 
+    /**
+     * True for any YouTube video link — www., m. (mobile share links) and music.
+     * hosts, youtu.be, /shorts/, /live/, /embed/, and `v=` anywhere in the query.
+     * Shares its URL parsing with the InnerTube caption path, so both always
+     * agree on what counts as YouTube.
+     */
     public function is_youtube_url($url) {
-        $this->logger->log("=== Checking if URL is YouTube ===");
-        $this->logger->log("URL to check: " . $url);
-        
-        // More strict YouTube URL validation
-        $patterns = [
-            '#^https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+#',
-            '#^https?://(?:www\.)?youtube\.com/v/[\w-]+#',
-            '#^https?://youtu\.be/[\w-]+#',
-            '#^https?://(?:www\.)?youtube\.com/embed/[\w-]+#',
-            '#^https?://(?:www\.)?youtube\.com/shorts/[\w-]+#'  // Added shorts pattern
-        ];
-        
-        foreach ($patterns as $pattern) {
-            $this->logger->log("Checking pattern: " . $pattern);
-            if (preg_match($pattern, $url)) {
-                $this->logger->log("✓ Matched YouTube pattern");
-                return true;
-            }
-        }
-        
-        $this->logger->log("✗ No YouTube patterns matched");
-        return false;
+        return YouTubeCaptions::extract_video_id($url) !== '';
     }
 
     private function check_cookies_file($url) {

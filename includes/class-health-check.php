@@ -69,14 +69,6 @@ class HealthCheck {
     }
 
     private function notify_failure($url, $error) {
-        $to = get_option('vfc_notify_email', '');
-        if (!is_string($to) || $to === '' || !is_email($to)) {
-            $to = get_option('admin_email');
-        }
-        if (!$to || !is_email($to)) {
-            return;
-        }
-
         // One alert per day max, so a persistent outage doesn't spam.
         $day_key = 'vfc_healthcheck_alert_' . current_time('Ymd');
         if (get_transient($day_key)) {
@@ -84,15 +76,12 @@ class HealthCheck {
         }
         set_transient($day_key, 1, DAY_IN_SECONDS);
 
-        $site = wp_parse_url(home_url(), PHP_URL_HOST);
-        $subject = sprintf('[Video Fact Checker] Health check FAILED on %s', $site);
         $body  = "The daily health check could not complete a fact-check.\n\n";
         $body .= "Test video:\n  {$url}\n\n";
         $body .= "Error:\n  {$error}\n\n";
         $body .= "This usually means the video downloader (yt-dlp) or a dependency needs attention.\n";
         $body .= "Time: " . current_time('Y-m-d H:i:s') . "\n";
 
-        $sent = wp_mail($to, $subject, $body);
-        $this->logger->log("Health check alert " . ($sent ? "sent" : "FAILED") . " to {$to}");
+        (new Notifier($this->logger))->send('Health check FAILED', $body);
     }
 }

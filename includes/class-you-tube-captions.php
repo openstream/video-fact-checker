@@ -49,12 +49,19 @@ class YouTubeCaptions {
      */
     public static function extract_video_id($url) {
         $url = (string) $url;
+        // Host must be YouTube itself (www., m., music., …) — not a share link
+        // on another site that merely carries a YouTube URL in its query.
+        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+        if (!preg_match('/(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/', $host)) {
+            return '';
+        }
         $patterns = [
             '#youtube\.com/watch\?(?:.*&)?v=([\w-]{11})#i',
             '#youtu\.be/([\w-]{11})#i',
             '#youtube\.com/shorts/([\w-]{11})#i',
             '#youtube\.com/embed/([\w-]{11})#i',
             '#youtube\.com/v/([\w-]{11})#i',
+            '#youtube\.com/live/([\w-]{11})#i',
         ];
         foreach ($patterns as $p) {
             if (preg_match($p, $url, $m)) {

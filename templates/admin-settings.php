@@ -146,7 +146,41 @@
                            value="<?php echo esc_attr(get_option('vfc_notify_email', '')); ?>"
                            placeholder="<?php echo esc_attr(get_option('admin_email')); ?>"
                            class="regular-text">
-                    <p class="description">Where error alerts, the daily log, and budget alerts are sent. Defaults to the site admin email.</p>
+                    <p class="description">Fallback for alerts when no Slack webhook is set (and where the daily log is mailed). Defaults to the site admin email. Note: the prod droplet can't deliver mail (port 25 is blocked).</p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="vfc_slack_webhook_url">Slack webhook URL</label></th>
+                <td>
+                    <input type="password" autocomplete="off"
+                           id="vfc_slack_webhook_url"
+                           name="vfc_slack_webhook_url"
+                           value="<?php echo esc_attr(get_option('vfc_slack_webhook_url', '')); ?>"
+                           placeholder="https://hooks.slack.com/services/…"
+                           class="regular-text">
+                    <p class="description">Incoming webhook for all alerts: failed fact-checks, Decodo proxy, health check, budget, new OpenAI models. When set, alerts go here instead of by email.</p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="vfc_decodo_api_key">Decodo API key</label></th>
+                <td>
+                    <input type="password" autocomplete="off"
+                           id="vfc_decodo_api_key"
+                           name="vfc_decodo_api_key"
+                           value="<?php echo esc_attr(get_option('vfc_decodo_api_key', '')); ?>"
+                           class="regular-text">
+                    <p class="description">Optional (Decodo dashboard → Settings → Public API). Enables the daily traffic check. Without it, the proxy is still probed daily and a 407 triggers an alert.</p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="vfc_decodo_alert_percent">Decodo alert at (% of plan)</label></th>
+                <td>
+                    <input type="number" min="1" max="100" step="1"
+                           id="vfc_decodo_alert_percent"
+                           name="vfc_decodo_alert_percent"
+                           value="<?php echo esc_attr(get_option('vfc_decodo_alert_percent', '')); ?>"
+                           placeholder="80"
+                           class="small-text">
                 </td>
             </tr>
 

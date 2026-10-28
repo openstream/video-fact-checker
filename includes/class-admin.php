@@ -55,6 +55,18 @@ class Admin {
             'type' => 'string',
             'sanitize_callback' => [$this, 'sanitize_email_option'],
         ]);
+        register_setting('vfc_settings', 'vfc_slack_webhook_url', [
+            'type' => 'string',
+            'sanitize_callback' => [$this, 'sanitize_slack_webhook'],
+        ]);
+        register_setting('vfc_settings', 'vfc_decodo_api_key', [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+        ]);
+        register_setting('vfc_settings', 'vfc_decodo_alert_percent', [
+            'type' => 'integer',
+            'sanitize_callback' => [$this, 'sanitize_nonneg_int'],
+        ]);
         // yt-dlp proxy settings (YouTube only)
         register_setting('vfc_settings', 'vfc_ytdlp_proxy_address', [
             'type' => 'string',
@@ -92,6 +104,12 @@ class Admin {
         $value = is_string($value) ? trim($value) : '';
         if ($value === '') return '';
         return is_email($value) ? $value : '';
+    }
+
+    /** Only Slack incoming-webhook URLs; anything else is dropped. */
+    public function sanitize_slack_webhook($value) {
+        $value = is_string($value) ? trim($value) : '';
+        return preg_match('#^https://hooks\.slack\.com/#', $value) ? esc_url_raw($value) : '';
     }
 
     /** Unchecked checkboxes aren't submitted, so absence means false. */

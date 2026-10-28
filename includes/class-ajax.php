@@ -324,7 +324,7 @@ class Ajax {
                 $this->logger->log("Stack trace: " . $e->getTraceAsString());
             }
 
-            // Notify the admin by email (de-duplicated inside the notifier).
+            // Notify the admin via Slack or email (de-duplicated inside the notifier).
             try {
                 $notifier = new Notifier($this->logger);
                 $notifier->notify_error(
