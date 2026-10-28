@@ -329,19 +329,7 @@ class CacheManager {
 
     public function get_by_short_url($short_url) {
         $this->logger->log("Looking up result for short URL: " . $short_url);
-        
-        // Debug: Print table structure
-        $table_structure = $this->wpdb->get_results("DESCRIBE {$this->table_name}");
-        $this->logger->log("Table structure: " . print_r($table_structure, true));
-        
-        // Debug: Count total rows
-        $total_rows = $this->wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name}");
-        $this->logger->log("Total rows in table: " . $total_rows);
-        
-        // Debug: Show all short URLs
-        $all_urls = $this->wpdb->get_col("SELECT short_url FROM {$this->table_name}");
-        $this->logger->log("All short URLs in database: " . print_r($all_urls, true));
-        
+
         $result = $this->wpdb->get_row(
             $this->wpdb->prepare(
                 "SELECT * FROM {$this->table_name} WHERE short_url = %s",

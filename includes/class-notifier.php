@@ -7,7 +7,7 @@ namespace VideoFactChecker;
  *   - notify_error():       a fact-check run failed (proxy 407s get a Decodo hint).
  *     Both fire on every run — Nick wants one Slack message per check.
  *   - check_daily_budget(): today's spend crossed the configured budget.
- *   - send_daily_log():     rotates the log; mails it first when no Slack is set.
+ *   - send_daily_log():     rotates the log, then mails it (size-capped) when no Slack is set.
  *   - send():               shared channel for every other alert (health check,
  *                           model watcher, Decodo monitor).
  *
@@ -259,11 +259,15 @@ class Notifier {
         $this->send('Daily budget exceeded', $body);
     }
 
+    /** Largest log we still attach to the fallback mail; bigger ones go out without attachment. */
+    const MAX_LOG_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
     /**
-     * Rotate the log once a day (WP-Cron). Without Slack the log is mailed first,
-     * as before; with Slack there's nothing to attach it to, so it's only rotated.
-     * Rotation keeps yesterday's log as `<log>.1` either way, so it never again
-     * hinges on a mail being delivered.
+     * Rotate the log once a day (WP-Cron). Rotation happens first and never
+     * depends on mail: PHPMailer loads attachments into memory, and mailing a
+     * never-rotated 320 MB log fataled the cron every night before it got to
+     * rotate (2024-11 to 2026-10). Without Slack, yesterday's log (`<log>.1`)
+     * is then mailed, attached only while it is small enough.
      */
     public function send_daily_log() {
         $log_file = $this->logger->get_log_file();
@@ -271,28 +275,38 @@ class Notifier {
             return;
         }
 
-        if ($this->slack_webhook() === '') {
-            $to = $this->recipient();
-            if ($to && is_email($to)) {
-                $site = wp_parse_url(home_url(), PHP_URL_HOST);
-                $date = current_time('Y-m-d');
-                $subject = sprintf('[Video Fact Checker] Daily log %s (%s)', $date, $site);
-                $body  = "Attached is the Video Fact Checker log for the period ending {$date}.\n";
-                $body .= "The log has been rotated after sending.\n";
-                $sent = wp_mail($to, $subject, $body, [], [$log_file]);
-                $this->logger->log("Daily log mail " . ($sent ? "handed to MTA" : "FAILED") . " for {$to}.");
-            }
+        if (!$this->rotate_log($log_file) || $this->slack_webhook() !== '') {
+            return;
         }
 
-        $this->rotate_log($log_file);
+        $to = $this->recipient();
+        if (!$to || !is_email($to)) {
+            return;
+        }
+        $rotated = $log_file . '.1';
+        $size = (int) @filesize($rotated);
+        $site = wp_parse_url(home_url(), PHP_URL_HOST);
+        $date = current_time('Y-m-d');
+        $subject = sprintf('[Video Fact Checker] Daily log %s (%s)', $date, $site);
+        $body = "The Video Fact Checker log for the period ending {$date} has been rotated to {$rotated}.\n";
+        $attachments = [];
+        if ($size <= self::MAX_LOG_ATTACHMENT_BYTES) {
+            $body .= "It is attached.\n";
+            $attachments[] = $rotated;
+        } else {
+            $body .= sprintf("It is %.1f MB, too large to attach; read it on the server.\n", $size / 1048576);
+        }
+        $sent = wp_mail($to, $subject, $body, [], $attachments);
+        $this->logger->log("Daily log mail " . ($sent ? "handed to MTA" : "FAILED") . " for {$to}.");
     }
 
     private function rotate_log($log_file) {
         if (@rename($log_file, $log_file . '.1')) {
             @touch($log_file);
             $this->logger->log("Log rotated (previous day kept as " . basename($log_file) . ".1).");
-        } else {
-            $this->logger->log("Log rotation FAILED for {$log_file}.", 'error');
+            return true;
         }
+        $this->logger->log("Log rotation FAILED for {$log_file}.", 'error');
+        return false;
     }
 }
