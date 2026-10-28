@@ -23,6 +23,28 @@ class Ajax {
         
         add_action('wp_ajax_vfc_check_progress', [$this, 'handle_check_progress']);
         add_action('wp_ajax_nopriv_vfc_check_progress', [$this, 'handle_check_progress']);
+
+        add_action('wp_ajax_vfc_refresh_nonce', [$this, 'handle_refresh_nonce']);
+        add_action('wp_ajax_nopriv_vfc_refresh_nonce', [$this, 'handle_refresh_nonce']);
+    }
+
+    /**
+     * Hands the browser a fresh nonce. A tab that iOS Safari restores from memory
+     * hours later still carries the nonce from the original page load, which
+     * WordPress rejects after 12-24 h; the JS calls this and retries once instead
+     * of showing "Security check failed".
+     */
+    public function handle_refresh_nonce() {
+        nocache_headers();
+        wp_send_json_success(['nonce' => wp_create_nonce('vfc_nonce')]);
+    }
+
+    /** Error response for a stale/invalid nonce; the JS refreshes and retries on this code. */
+    private function send_invalid_nonce() {
+        wp_send_json_error([
+            'code' => 'invalid_nonce',
+            'message' => 'Your session has expired. Please reload the page and try again.',
+        ]);
     }
 
     /** Slack/mail note for a finished check; never lets a notifier problem break the response. */
@@ -48,7 +70,7 @@ class Ajax {
             // Verify nonce and URL
             if (!check_ajax_referer('vfc_nonce', 'nonce', false)) {
                 $this->logger->log("Nonce verification failed");
-                wp_send_json_error(['message' => 'Security check failed']);
+                $this->send_invalid_nonce();
                 return;
             }
 
@@ -388,7 +410,7 @@ class Ajax {
     public function handle_update_status() {
         try {
             if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'vfc_nonce')) {
-                wp_send_json_error(['message' => 'Security check failed']);
+                $this->send_invalid_nonce();
                 return;
             }
 
@@ -402,8 +424,8 @@ class Ajax {
 
     public function handle_check_progress() {
         try {
-            if (!wp_verify_nonce($_POST['nonce'], 'vfc_nonce')) {
-                wp_send_json_error(['message' => 'Security check failed']);
+            if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'vfc_nonce')) {
+                $this->send_invalid_nonce();
                 return;
             }
 

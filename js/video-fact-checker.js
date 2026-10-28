@@ -40,6 +40,57 @@ jQuery(document).ready(function($) {
 
     console.log('Video Fact Checker initialized');
 
+    // --- Nonce handling -------------------------------------------------------
+    // The nonce is baked into the page at load time and WordPress rejects it after
+    // 12-24 h. iOS Safari happily restores a tab from memory days later without
+    // reloading it, so the first request then fails. vfcPost() sends the current
+    // nonce and, if the server answers with code 'invalid_nonce', fetches a fresh
+    // one and retries the request exactly once. Concurrent failures share one
+    // refresh request.
+    let nonceRefresh = null;
+
+    function refreshNonce() {
+        if (!nonceRefresh) {
+            nonceRefresh = $.post(vfc_ajax.ajax_url, { action: 'vfc_refresh_nonce' })
+                .then(function(response) {
+                    if (response && response.success && response.data.nonce) {
+                        vfc_ajax.nonce = response.data.nonce;
+                        return response.data.nonce;
+                    }
+                    return $.Deferred().reject().promise();
+                })
+                .always(function() { nonceRefresh = null; });
+        }
+        return nonceRefresh;
+    }
+
+    function isInvalidNonce(response) {
+        return response && !response.success && response.data && response.data.code === 'invalid_nonce';
+    }
+
+    // Returns a jQuery promise: .done(response) for any JSON answer (success or
+    // error), .fail(xhr, status, error) for transport errors.
+    function vfcPost(data) {
+        const send = function() {
+            return $.post(vfc_ajax.ajax_url, $.extend({}, data, { nonce: vfc_ajax.nonce }));
+        };
+        return send().then(function(response) {
+            if (!isInvalidNonce(response)) {
+                return response;
+            }
+            console.log('Nonce expired, refreshing and retrying:', data.action);
+            return refreshNonce().then(send, function() { return response; });
+        });
+    }
+
+    // Page restored from the back/forward cache (e.g. an old Safari tab):
+    // fetch a fresh nonce right away so the first submit doesn't hit a stale one.
+    window.addEventListener('pageshow', function(e) {
+        if (e.persisted) {
+            refreshNonce();
+        }
+    });
+
     form.on('submit', function(e) {
         e.preventDefault();
         const videoUrl = $('#video-url').val();
@@ -53,15 +104,8 @@ jQuery(document).ready(function($) {
         
         updateStatus('starting');
         
-        $.ajax({
-            url: vfc_ajax.ajax_url,
-            type: 'POST',
-            data: {
-                action: 'vfc_process_video',
-                nonce: vfc_ajax.nonce,
-                url: videoUrl
-            },
-            success: function(response) {
+        vfcPost({ action: 'vfc_process_video', url: videoUrl })
+            .done(function(response) {
                 console.log('Server response:', response);
                 if (response.success) {
                     displayResults(response.data);
@@ -69,60 +113,54 @@ jQuery(document).ready(function($) {
                     const errorMessage = response.data ? response.data.message : 'An unknown error occurred';
                     displayError(errorMessage);
                 }
-            },
-            error: function(xhr, status, error) {
+            })
+            .fail(function(xhr, status, error) {
                 console.log('Raw response:', xhr.responseText);
                 console.error('Ajax error:', {xhr, status, error});
                 displayError('An error occurred while processing the request.');
-            }
-        });
+            });
 
         // Start progress checking
         startProgressChecking();
     });
 
+    let progressInterval = null;
+
+    function stopProgressChecking() {
+        if (progressInterval) {
+            clearInterval(progressInterval);
+            progressInterval = null;
+        }
+    }
+
     function startProgressChecking() {
-        const progressInterval = setInterval(function() {
-            $.ajax({
-                url: vfc_ajax.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'vfc_check_progress',
-                    nonce: vfc_ajax.nonce
-                },
-                success: function(response) {
+        stopProgressChecking();
+        progressInterval = setInterval(function() {
+            vfcPost({ action: 'vfc_check_progress' })
+                .done(function(response) {
                     console.log('Progress response:', response);
                     if (response.success) {
                         updateProgressBar(response.data.progress);
                         updateStatusMessage(response.data.status);
                         
                         if (response.data.status === 'complete' || response.data.status === 'error') {
-                            clearInterval(progressInterval);
+                            stopProgressChecking();
                         }
                     }
-                }
-            });
+                });
         }, 2000); // Check every 2 seconds
     }
 
     function updateStatus(status) {
         console.log('Updating status:', status);
-        $.ajax({
-            url: vfc_ajax.ajax_url,
-            type: 'POST',
-            data: {
-                action: 'vfc_update_status',
-                nonce: vfc_ajax.nonce,
-                status: status
-            },
-            success: function(response) {
+        vfcPost({ action: 'vfc_update_status', status: status })
+            .done(function(response) {
                 console.log('Status update response:', response);
                 if (response.success) {
                     updateProgressBar(response.data.progress);
                     updateStatusMessage(status);
                 }
-            }
-        });
+            });
     }
 
     function updateProgressBar(progress) {
@@ -217,6 +255,7 @@ jQuery(document).ready(function($) {
 
     function displayError(message) {
         console.error('Error:', message);
+        stopProgressChecking();
         progressContainer.fadeOut(400, function() {
             // Hide any previous successful result so success and error states
             // never show at the same time. The error renders in its own container
