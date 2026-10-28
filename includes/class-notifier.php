@@ -3,7 +3,9 @@ namespace VideoFactChecker;
 
 /**
  * Admin notifications for the plugin:
+ *   - notify_check():       a fact-check succeeded or was served from cache.
  *   - notify_error():       a fact-check run failed (proxy 407s get a Decodo hint).
+ *     Both fire on every run — Nick wants one Slack message per check.
  *   - check_daily_budget(): today's spend crossed the configured budget.
  *   - send_daily_log():     rotates the log; mails it first when no Slack is set.
  *   - send():               shared channel for every other alert (health check,
@@ -16,13 +18,6 @@ namespace VideoFactChecker;
  * that never drains.
  */
 class Notifier {
-
-    // Don't send the same error twice within this window (seconds), to avoid a
-    // flood when the same failure repeats (e.g. a dead proxy).
-    const DEDUPE_WINDOW = 600; // 10 minutes
-
-    // A dead proxy fails every YouTube run; one Decodo alert per hour is enough.
-    const PROXY_DEDUPE_WINDOW = HOUR_IN_SECONDS;
 
     // Slack renders up to ~40k chars, but long code blocks are unreadable.
     const SLACK_MAX_BODY = 3500;
@@ -51,13 +46,15 @@ class Notifier {
      *
      * @param string $title  Short headline, without the site name (added here).
      * @param string $body   Plain-text details.
+     * @param string $slack_mrkdwn  Optional Slack-formatted body (clickable links);
+     *                              without it Slack gets $body in a code block.
      */
-    public function send($title, $body) {
+    public function send($title, $body, $slack_mrkdwn = '') {
         $site = wp_parse_url(home_url(), PHP_URL_HOST);
 
         $webhook = $this->slack_webhook();
         if ($webhook !== '') {
-            if ($this->post_to_slack($webhook, $title, $body, $site)) {
+            if ($this->post_to_slack($webhook, $title, $body, $site, $slack_mrkdwn)) {
                 return true;
             }
             // Fall through to mail so a broken webhook doesn't swallow the alert.
@@ -72,20 +69,25 @@ class Notifier {
         return $sent;
     }
 
-    private function post_to_slack($webhook, $title, $body, $site) {
-        $body = trim($body);
-        if (strlen($body) > self::SLACK_MAX_BODY) {
-            $body = substr($body, 0, self::SLACK_MAX_BODY) . "\n…";
-        }
-        $text = '*' . $title . '* · ' . $site;
-        if ($body !== '') {
-            $text .= "\n```" . $body . "```";
+    private function post_to_slack($webhook, $title, $body, $site, $mrkdwn = '') {
+        $text = '*' . self::slack_escape($title) . '* · ' . $site;
+        if ($mrkdwn !== '') {
+            $text .= "\n" . $mrkdwn;
+        } else {
+            $body = trim($body);
+            if (strlen($body) > self::SLACK_MAX_BODY) {
+                $body = substr($body, 0, self::SLACK_MAX_BODY) . "\n…";
+            }
+            if ($body !== '') {
+                $text .= "\n```" . $body . "```";
+            }
         }
 
         $response = wp_remote_post($webhook, [
             'headers' => ['Content-Type' => 'application/json'],
             'body'    => wp_json_encode(['text' => $text]),
-            'timeout' => 10,
+            // Runs inside the user's fact-check request; keep the wait short.
+            'timeout' => 5,
         ]);
         if (is_wp_error($response)) {
             $this->logger->log("Slack alert FAILED ({$title}): " . $response->get_error_message(), 'error');
@@ -108,8 +110,68 @@ class Notifier {
             || stripos($text, 'proxy traffic limit') !== false;
     }
 
+    /** Slack mrkdwn needs &, < and > escaped in plain text. */
+    public static function slack_escape($text) {
+        return str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], (string) $text);
+    }
+
+    private static function slack_link($url, $label = '') {
+        $url = str_replace(['<', '>', '|'], ['%3C', '%3E', '%7C'], (string) $url);
+        return '<' . $url . ($label !== '' ? '|' . self::slack_escape($label) : '') . '>';
+    }
+
+    /** "Label: value" lines for Slack, skipping empty values. */
+    private static function slack_lines(array $rows) {
+        $out = [];
+        foreach ($rows as $label => $value) {
+            if ($value !== '' && $value !== null) {
+                $out[] = '*' . $label . ':* ' . $value;
+            }
+        }
+        return implode("\n", $out);
+    }
+
     /**
-     * Notify the admin about a failed run. De-duplicated per error signature.
+     * Report a successful (or cache-served) fact-check — one message per run.
+     *
+     * @param array $d  url, share_url, title, platform, cached (bool), cached_at,
+     *                  nocache (bool), model, source, summary, cost (float|null),
+     *                  seconds (float), country, lang, ref.
+     */
+    public function notify_check(array $d) {
+        $get = function ($k) use ($d) { return isset($d[$k]) ? $d[$k] : ''; };
+
+        if (!empty($d['cached'])) {
+            $title = '✅ Fact-check served from cache';
+        } elseif (!empty($d['nocache'])) {
+            $title = '✅ Fact-check completed (nocache, not saved)';
+        } else {
+            $title = '✅ Fact-check completed';
+        }
+
+        $share = $get('share_url');
+        $mrkdwn = self::slack_lines([
+            'Fact-check' => $share !== '' ? self::slack_link($share) : '',
+            'Video'      => self::slack_link($get('url'), $get('title') !== '' ? $get('title') : $get('url')),
+            'Platform'   => self::slack_escape($get('platform')),
+            'Summary'    => self::slack_escape($get('summary')),
+            'Model'      => self::slack_escape($get('model')),
+            'Transcript' => self::slack_escape($get('source')),
+            'Cost'       => isset($d['cost']) && $d['cost'] !== null ? sprintf('$%.4f', $d['cost']) : '',
+            'Duration'   => isset($d['seconds']) ? sprintf('%.0f s', $d['seconds']) : '',
+            'Checked on' => self::slack_escape($get('cached_at')),
+            'Language'   => self::slack_escape($get('lang')),
+            'Country'    => self::slack_escape($get('country')),
+            'Ref'        => self::slack_escape($get('ref')),
+        ]);
+
+        $body = "Fact-check: {$share}\nVideo: " . $get('url') . "\n";
+        $this->send($title, $body, $mrkdwn);
+    }
+
+    /**
+     * Report a failed run. Every failure is reported (one message per check);
+     * a proxy 407 gets a Decodo hint.
      *
      * @param string $user_message  The concise message shown to the user.
      * @param string $raw_details   The real reason (yt-dlp/HTTP error line, proxy
@@ -118,43 +180,44 @@ class Notifier {
      * @param string $url           The video URL that failed (optional).
      * @param string $ref           The log reference id (optional).
      * @param string $stage         Which step failed, in plain words (optional).
+     * @param array  $extra         Optional: seconds, country.
      */
-    public function notify_error($user_message, $raw_details = '', $url = '', $ref = '', $stage = '') {
+    public function notify_error($user_message, $raw_details = '', $url = '', $ref = '', $stage = '', array $extra = []) {
         $proxy_problem = self::is_proxy_auth_error($user_message . ' ' . $raw_details);
 
-        // De-dupe: skip if an identical error signature was sent very recently.
-        // Proxy failures share one key, since every YouTube URL hits the same wall.
-        if ($proxy_problem) {
-            $sig = 'vfc_notified_proxy407';
-            $window = self::PROXY_DEDUPE_WINDOW;
-        } else {
-            $sig = 'vfc_notified_' . md5($user_message . '|' . $url);
-            $window = self::DEDUPE_WINDOW;
-        }
-        if (get_transient($sig)) {
-            $this->logger->log("Admin alert suppressed (deduped): " . $user_message);
-            return;
-        }
-        set_transient($sig, 1, $window);
-
         $title = $proxy_problem
-            ? 'Decodo proxy refused the connection (407): traffic or balance likely used up'
-            : 'Fact-check failed';
+            ? '❌ Fact-check failed: Decodo proxy refused (407), traffic or balance likely used up'
+            : '❌ Fact-check failed';
+
+        $reason = $raw_details;
+        if (strlen($reason) > 1500) {
+            $reason = substr($reason, 0, 1500) . '…';
+        }
+
+        $mrkdwn = self::slack_lines([
+            'Video'           => $url !== '' ? self::slack_link($url) : '',
+            'What failed'     => self::slack_escape($stage),
+            'Shown to user'   => self::slack_escape($user_message),
+            'Duration'        => isset($extra['seconds']) ? sprintf('%.0f s', $extra['seconds']) : '',
+            'Country'         => self::slack_escape(isset($extra['country']) ? $extra['country'] : ''),
+            'Ref'             => self::slack_escape($ref),
+        ]);
+        if ($proxy_problem) {
+            $mrkdwn .= "\nTop up or enable auto-recharge: " . self::slack_link('https://dashboard.decodo.com/');
+        }
+        if ($reason !== '') {
+            $mrkdwn .= "\n```" . $reason . "```";
+        }
 
         $body = '';
-        if ($proxy_problem) {
-            $body .= "Top up or enable auto-recharge at https://dashboard.decodo.com/ — YouTube videos\n";
-            $body .= "without directly reachable subtitles fail until then.\n\n";
-        }
         if ($stage !== '') { $body .= "What failed:\n  " . $stage . "\n\n"; }
         if ($raw_details !== '') { $body .= "Reason:\n  " . $raw_details . "\n\n"; }
         $body .= "Message shown to user:\n  " . $user_message . "\n\n";
         if ($url !== '')   { $body .= "Video URL:\n  " . $url . "\n\n"; }
         if ($ref !== '')   { $body .= "Log reference:\n  " . $ref . "\n\n"; }
         $body .= "Time: " . current_time('Y-m-d H:i:s') . "\n";
-        $body .= "Log: " . $this->logger->get_log_file() . "\n";
 
-        $this->send($title, $body);
+        $this->send($title, $body, $mrkdwn);
     }
 
     /**

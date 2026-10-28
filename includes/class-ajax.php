@@ -25,7 +25,18 @@ class Ajax {
         add_action('wp_ajax_nopriv_vfc_check_progress', [$this, 'handle_check_progress']);
     }
 
+    /** Slack/mail note for a finished check; never lets a notifier problem break the response. */
+    private function notify_check(array $details) {
+        try {
+            (new Notifier($this->logger))->notify_check($details);
+        } catch (\Throwable $e) {
+            $this->logger->log("Failed to send check notification: " . $e->getMessage(), 'error');
+        }
+    }
+
     public function handle_process_video() {
+        $started = microtime(true);
+        $country_code = '';
         try {
             // Verify services are initialized
             if (!$this->processor || !$this->transcriber || !$this->fact_checker) {
@@ -118,6 +129,20 @@ class Ajax {
                             );
                         }
                     }
+                    $cached_row = $cache_manager->get_by_short_url($cached_result['short_url']);
+                    $this->notify_check([
+                        'url'       => $url,
+                        'share_url' => home_url('/share/' . $cached_result['short_url'] . '/'),
+                        'title'     => $cached_row && !empty($cached_row->video_title) ? $cached_row->video_title : '',
+                        'summary'   => $cached_row && !empty($cached_row->meta_description) ? $cached_row->meta_description : '',
+                        'platform'  => VideoProcessor::detect_platform($url),
+                        'cached'    => true,
+                        'cached_at' => $cached_at,
+                        'model'     => isset($cached_result['used_model']) ? $cached_result['used_model'] : '',
+                        'seconds'   => microtime(true) - $started,
+                        'country'   => $country_code,
+                        'ref'       => $request_id,
+                    ]);
                     wp_send_json_success([
                         'transcription' => $cached_result['transcription'],
                         'analysis' => $cached_result['analysis'],
@@ -129,9 +154,7 @@ class Ajax {
                         // the /share/ page, so the inline view matches it. Render
                         // from the full DB row (get_cached_result omits video_url /
                         // video_title, which the template needs).
-                        'result_html' => vfc_render_result_html(
-                            $cache_manager->get_by_short_url($cached_result['short_url']) ?: $cached_result
-                        ),
+                        'result_html' => vfc_render_result_html($cached_row ?: $cached_result),
                     ]);
                     return;
                 }
@@ -288,6 +311,22 @@ class Ajax {
                 'created_at'    => current_time('mysql'),
             ];
 
+            $this->notify_check([
+                'url'       => $url,
+                'share_url' => $nocache ? '' : home_url('/share/' . $short_url . '/'),
+                'title'     => isset($metrics['video_title']) ? $metrics['video_title'] : '',
+                'summary'   => $meta_description,
+                'platform'  => VideoProcessor::detect_platform($url),
+                'nocache'   => $nocache,
+                'model'     => $used_model,
+                'source'    => $transcript_source,
+                'cost'      => isset($metrics['total_cost']) ? (float) $metrics['total_cost'] : null,
+                'seconds'   => microtime(true) - $started,
+                'lang'      => $lang,
+                'country'   => $country_code,
+                'ref'       => $request_id,
+            ]);
+
             wp_send_json_success([
                 'transcription' => $transcription,
                 'analysis' => $analysis,
@@ -332,7 +371,8 @@ class Ajax {
                     $technical !== '' ? $technical : $e->getTraceAsString(),
                     isset($url) ? $url : '',
                     $ref,
-                    $stage
+                    $stage,
+                    ['seconds' => microtime(true) - $started, 'country' => $country_code]
                 );
             } catch (\Throwable $notifyError) {
                 $this->logger->log("Failed to send admin error mail: " . $notifyError->getMessage(), 'error');
