@@ -2,12 +2,12 @@
 namespace VideoFactChecker;
 
 /**
- * Watches OpenAI's model list and emails the admin when a new, relevant chat
- * model appears — so we can add its price + knowledge cutoff to
- * CostCalculator::MODEL_PRICING and, if it's a cheaper/newer generation, switch
- * to it.
+ * Weekly model status check: tells the admin (Slack, mail fallback) when OpenAI
+ * has new relevant chat models, when those are missing from
+ * CostCalculator::MODEL_PRICING, and when a priced model offers a newer
+ * knowledge cutoff without costing more than the configured one.
  *
- * Why email-only (no auto-switch): the /v1/models API exposes ONLY id + created
+ * Why notify-only (no auto-switch): the /v1/models API exposes ONLY id + created
  * — NOT price or knowledge cutoff, which are exactly our two selection criteria.
  * Switching automatically to a model whose price we don't know could be
  * expensive, so the watcher only notifies; a human enters the price/cutoff and
@@ -102,11 +102,26 @@ class ModelWatcher {
     }
 
     /**
-     * Main entry point (called by the weekly cron). Compares the current
-     * relevant models against the stored "known" set; emails the admin about any
-     * new ones and updates the stored set. First-ever run seeds the set silently.
+     * Relevant API models we deliberately don't price/offer, so they don't
+     * trigger the "missing from MODEL_PRICING" reminder every week.
+     * gpt-6-sol: in the API but undocumented, superseded by gpt-6.1-sol.
+     */
+    const IGNORED_MODELS = ['gpt-6-sol'];
+
+    /**
+     * Main entry point (called by the weekly cron). A status check, not just a
+     * "new id" diff: it re-reports every week until someone acts, because a
+     * one-shot notice can get lost (Sep/Oct 2026: four gpt-6 notices went to a
+     * mailbox prod can't deliver to, then counted as "known" and never came back).
      *
-     * @return array The list of newly-detected model ids (empty if none/failure).
+     * Reports to Slack (via Notifier) when any of these holds:
+     *  - new: relevant model ids not seen before (first run seeds silently);
+     *  - unpriced: models newer than our newest priced one that are missing
+     *    from CostCalculator::MODEL_PRICING (no price/cutoff → not selectable);
+     *  - upgrade: a priced model with a NEWER knowledge cutoff that is not more
+     *    expensive (input price) than the configured primary model.
+     *
+     * @return array ['new' => [...], 'unpriced' => [...], 'upgrade' => [...]]
      */
     public function check() {
         $current = $this->fetch_relevant_models();
@@ -115,61 +130,118 @@ class ModelWatcher {
         }
 
         $known = get_option(self::OPTION_KNOWN, null);
-
-        // First run: remember the current set without emailing (avoid spamming
-        // the whole existing list as "new").
+        $new = [];
         if (!is_array($known)) {
-            update_option(self::OPTION_KNOWN, $current, false);
+            // First run: remember the current set without calling everything "new".
             $this->logger->log('ModelWatcher: seeded known-models list (' . count($current) . ' models)');
-            return [];
+            $known = [];
+        } else {
+            $new = array_values(array_diff($current, $known));
         }
-
-        $new = array_values(array_diff($current, $known));
-        if (empty($new)) {
-            return [];
-        }
-
-        $this->logger->log('ModelWatcher: new models detected: ' . implode(', ', $new));
-        $this->notify($new);
-
-        // Merge so we don't email the same model twice (union keeps ids that may
-        // have disappeared from the list too, which is harmless).
         $merged = array_values(array_unique(array_merge($known, $current)));
         sort($merged);
         update_option(self::OPTION_KNOWN, $merged, false);
 
-        return $new;
+        $status = [
+            'new'      => $new,
+            'unpriced' => $this->unpriced_models($current),
+            'upgrade'  => self::upgrade_candidates(get_option('vfc_openai_model', '')),
+        ];
+        $this->logger->log(sprintf(
+            'ModelWatcher: new=[%s] unpriced=[%s] upgrade=[%s]',
+            implode(', ', $status['new']), implode(', ', $status['unpriced']), implode(', ', $status['upgrade'])
+        ));
+
+        if ($status['new'] || $status['unpriced'] || $status['upgrade']) {
+            $this->notify($status);
+        }
+        return $status;
     }
 
     /**
-     * Tell the admin (Slack or email, via Notifier) about newly-available models,
-     * with next steps.
+     * API models missing from MODEL_PRICING, limited to generations at least as
+     * new as the newest priced one — older gpt-5.x we never priced stay quiet.
      */
-    private function notify($new_models) {
-        $current_model = get_option('vfc_openai_model', '(none)');
-        $current_cutoff = CostCalculator::cutoff_for($current_model);
-
-        $body  = "OpenAI is offering one or more new models your account didn't have before:\n\n";
-        foreach ($new_models as $m) {
-            $body .= "  • " . $m . "\n";
+    private function unpriced_models(array $current) {
+        $newest_priced = 0.0;
+        foreach (array_keys(CostCalculator::MODEL_PRICING) as $m) {
+            $newest_priced = max($newest_priced, self::generation($m));
         }
-        $body .= "\nYour fact-check model right now: " . $current_model;
-        if ($current_cutoff !== '') {
-            $body .= " (knowledge cutoff " . $current_cutoff . ")";
+        $out = [];
+        foreach ($current as $id) {
+            if (isset(CostCalculator::MODEL_PRICING[$id]) || in_array($id, self::IGNORED_MODELS, true)) {
+                continue;
+            }
+            if (self::generation($id) >= $newest_priced) {
+                $out[] = $id;
+            }
         }
-        $body .= "\n\n";
-        $body .= "Why this matters: the fact-checker has no live web search, so a newer\n";
-        $body .= "knowledge cutoff means fresher facts — and a cheaper tier keeps costs low.\n\n";
-        $body .= "The OpenAI API does NOT expose price or knowledge cutoff, so this can't be\n";
-        $body .= "done automatically. Please:\n";
-        $body .= "  1. Look up the model's input/output price and knowledge cutoff in the\n";
-        $body .= "     OpenAI docs (https://developers.openai.com/api/docs/models/).\n";
-        $body .= "  2. Add them to CostCalculator::MODEL_PRICING and MODEL_CUTOFF\n";
-        $body .= "     (includes/class-cost-calculator.php) and deploy.\n";
-        $body .= "  3. If it's a newer generation with a cheap tier, switch the primary\n";
-        $body .= "     model under Settings → Fact Checker.\n\n";
-        $body .= "Time: " . current_time('Y-m-d H:i:s') . "\n";
+        return $out;
+    }
 
-        (new Notifier($this->logger))->send('New OpenAI model available', $body);
+    /** "gpt-6.1-terra" → 6.1, "gpt-5" → 5.0, anything else → 0. */
+    private static function generation($id) {
+        return preg_match('/^gpt-(\d+(?:\.\d+)?)/i', $id, $m) ? (float) $m[1] : 0.0;
+    }
+
+    /** "May 2026" → comparable timestamp, '' → 0. */
+    private static function cutoff_ts($label) {
+        $ts = $label !== '' ? strtotime('1 ' . $label) : false;
+        return $ts ?: 0;
+    }
+
+    /**
+     * Priced models with a newer knowledge cutoff than $model at the same or a
+     * lower input price — i.e. fresher facts without extra cost. Cheapest first.
+     */
+    public static function upgrade_candidates($model) {
+        $cur_cutoff = self::cutoff_ts(CostCalculator::cutoff_for($model));
+        if ($cur_cutoff === 0 || !isset(CostCalculator::MODEL_PRICING[$model])) {
+            return [];
+        }
+        $cur_in = CostCalculator::MODEL_PRICING[$model][0];
+        $out = [];
+        foreach (CostCalculator::MODEL_PRICING as $id => $price) {
+            if ($id !== $model && $price[0] <= $cur_in
+                && self::cutoff_ts(CostCalculator::cutoff_for($id)) > $cur_cutoff) {
+                $out[$id] = $price[0];
+            }
+        }
+        asort($out);
+        return array_keys($out);
+    }
+
+    /** Slack (or mail fallback) report with what to do next. */
+    private function notify(array $status) {
+        $model = get_option('vfc_openai_model', '(none)');
+        $fmt = function ($id) {
+            $p = CostCalculator::MODEL_PRICING[$id] ?? null;
+            $c = CostCalculator::cutoff_for($id);
+            return $id . ($p ? sprintf(' — $%.2f / $%.2f per 1M', $p[0], $p[1]) : '') . ($c !== '' ? ", cutoff {$c}" : '');
+        };
+
+        $body = "Fact-check model now: " . $fmt($model) . "\n";
+        if ($status['upgrade']) {
+            $body .= "\nNewer knowledge cutoff at the same or a lower price — consider switching\n";
+            $body .= "(Settings → Fact Checker → model):\n";
+            foreach ($status['upgrade'] as $m) {
+                $body .= "  • " . $fmt($m) . "\n";
+            }
+        }
+        if ($status['unpriced']) {
+            $body .= "\nIn the OpenAI API but not in CostCalculator::MODEL_PRICING yet (price and\n";
+            $body .= "cutoff are only in the docs: https://developers.openai.com/api/docs/models/ —\n";
+            $body .= "add them, or list the id in ModelWatcher::IGNORED_MODELS):\n";
+            foreach ($status['unpriced'] as $m) {
+                $body .= "  • " . $m . "\n";
+            }
+        }
+        if ($status['new']) {
+            $body .= "\nNew since last week: " . implode(', ', $status['new']) . "\n";
+        }
+        $body .= "\nThis reminder repeats every Monday until the points above are resolved.\n";
+
+        $title = $status['upgrade'] ? 'Better OpenAI model available' : 'OpenAI model list changed';
+        (new Notifier($this->logger))->send($title, $body);
     }
 }

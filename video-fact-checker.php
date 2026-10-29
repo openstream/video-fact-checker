@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.22.2
+ * Version: 0.23.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.22.2');
+define('VFC_VERSION', '0.23.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -370,7 +370,7 @@ add_action('vfc_daily_log_email', function() {
     $notifier->send_daily_log();
 });
 
-// Weekly cron: check OpenAI for new models and email the admin if any appeared.
+// Weekly cron: model status check (new / unpriced OpenAI models, cheaper-or-equal model with a newer cutoff) → Slack.
 add_action('vfc_weekly_model_check', function() {
     try {
         (new VideoFactChecker\ModelWatcher())->check();

@@ -20,6 +20,16 @@ class CostCalculator {
      * read from here, so prices never drift between the two.
      */
     const MODEL_PRICING = [
+        // GPT-6 family (Aug–Oct 2026; all reasoning models, see FactChecker).
+        // astra = flagship, 6.1-sol = balanced, 6.1-terra = fast/writing,
+        // luna = cheapest. astra and 6.1-sol reject reasoning_effort "none"
+        // (lowest is "low"); luna and 6.1-terra accept it. Prices/cutoffs from
+        // developers.openai.com/api/docs/models as of 2026-10-29. gpt-6-sol is
+        // in the API but not documented (superseded by 6.1-sol), so not listed.
+        'gpt-6-astra'  => [10.00, 50.00],
+        'gpt-6.1-sol'  => [2.00, 10.00],
+        'gpt-6.1-terra' => [1.00, 5.00],
+        'gpt-6-luna'   => [0.10, 0.50],
         // GPT-5 family (reasoning-style: default temperature only; see FactChecker).
         // The 5.6 line is a tier system (all released 2026-06-23, same Feb-2026
         // cutoff): luna = cheapest, terra = mid, sol = flagship. Luna's price was
@@ -46,6 +56,10 @@ class CostCalculator {
      * how current each model's knowledge is, in the admin dropdown and the footer.
      */
     const MODEL_CUTOFF = [
+        'gpt-6-astra'  => 'Apr 2026',
+        'gpt-6.1-sol'  => 'Apr 2026',
+        'gpt-6.1-terra' => 'Jun 2026',
+        'gpt-6-luna'   => 'May 2026',
         'gpt-5.6-luna' => 'Feb 2026',
         'gpt-5.6-terra' => 'Feb 2026',
         'gpt-5.6-sol'  => 'Feb 2026',

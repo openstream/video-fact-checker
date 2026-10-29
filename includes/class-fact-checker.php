@@ -39,11 +39,12 @@ class FactChecker {
     public function get_used_model() { return $this->used_model !== '' ? $this->used_model : $this->model; }
     
     /**
-     * True for models that only accept the default temperature (1) — the GPT-5 /
-     * reasoning family. These reject a custom `temperature` like 0.3.
+     * True for models that only accept the default temperature (1) — the GPT-5+ /
+     * reasoning family (gpt-5.x, gpt-6.x, …, o-series). These reject a custom
+     * `temperature` like 0.3 and `max_tokens` (HTTP 400, verified on gpt-6-luna).
      */
     private function model_uses_default_temperature($model) {
-        return (bool) preg_match('/^(gpt-5|o[0-9])/i', (string) $model);
+        return (bool) preg_match('/^(gpt-([5-9]|\d{2,})|o[0-9])/i', (string) $model);
     }
 
     public function check_facts($transcription) {
@@ -362,7 +363,17 @@ class FactChecker {
             if ($code !== 200) {
                 $last_error = isset($body['error']['message']) ? $body['error']['message'] : "HTTP {$code}";
                 $this->logger->log("Fact check API error ({$model}, attempt {$attempt}): {$last_error}", 'error');
-                // A bad-request (e.g. unsupported param) won't fix itself on retry.
+                // Some reasoning models (gpt-6-astra, gpt-6.1-sol) reject
+                // reasoning_effort "none" — their lowest level is "low". Retry once
+                // with it and a bigger budget, since reasoning tokens now count too.
+                if ($code === 400 && ($payload['reasoning_effort'] ?? '') === 'none'
+                    && stripos($last_error, 'reasoning_effort') !== false) {
+                    $payload['reasoning_effort'] = 'low';
+                    $payload['max_completion_tokens'] = 16000;
+                    $this->logger->log("Model {$model} rejects reasoning_effort=none; retrying with low, max_completion_tokens=16000");
+                    continue;
+                }
+                // Any other bad-request (e.g. unsupported param) won't fix itself on retry.
                 if ($code === 400) {
                     break;
                 }
