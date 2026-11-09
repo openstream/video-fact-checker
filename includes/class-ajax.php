@@ -29,6 +29,38 @@ class Ajax {
 
         add_action('wp_ajax_vfc_preflight', [$this, 'handle_preflight']);
         add_action('wp_ajax_nopriv_vfc_preflight', [$this, 'handle_preflight']);
+
+        add_action('wp_ajax_vfc_premium_feedback', [$this, 'handle_premium_feedback']);
+        add_action('wp_ajax_nopriv_vfc_premium_feedback', [$this, 'handle_premium_feedback']);
+    }
+
+    /**
+     * Yes/No answer to "would you pay to check longer videos?", shown when a
+     * video is too long. Goes to Slack; one answer per visitor and video per day.
+     */
+    public function handle_premium_feedback() {
+        if (!check_ajax_referer('vfc_nonce', 'nonce', false)) {
+            $this->send_invalid_nonce();
+            return;
+        }
+        $answer = isset($_POST['answer']) ? sanitize_key($_POST['answer']) : '';
+        if (!in_array($answer, ['yes', 'no'], true) || (new BotGuard($this->logger))->is_honeypot_filled()) {
+            wp_send_json_error(['message' => 'Invalid answer.']);
+            return;
+        }
+        $url = isset($_POST['url']) ? esc_url_raw(wp_unslash($_POST['url'])) : '';
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+        $once = 'vfc_premium_fb_' . md5(wp_salt('nonce') . $ip . '|' . $url);
+        if (!get_transient($once)) {
+            set_transient($once, 1, DAY_IN_SECONDS);
+            $this->logger->log("Premium feedback: {$answer} for {$url}");
+            try {
+                (new Notifier($this->logger))->notify_premium_feedback($answer === 'yes', $url, Geo::current_country_code());
+            } catch (\Throwable $e) {
+                $this->logger->log("Failed to send premium feedback: " . $e->getMessage(), 'error');
+            }
+        }
+        wp_send_json_success(['thanks' => true]);
     }
 
     /**
@@ -85,7 +117,7 @@ class Ajax {
         } catch (\Throwable $e) {
             $this->logger->log("Failed to send decline notification: " . $e->getMessage(), 'error');
         }
-        wp_send_json_success(['ok' => false, 'message' => $rejection->get_user_message()]);
+        wp_send_json_success(['ok' => false, 'too_long' => true, 'message' => $rejection->get_user_message()]);
     }
 
     /**
@@ -494,7 +526,10 @@ class Ajax {
             }
 
             // Send the concise, human-friendly message to the user.
+            // Over the length limit: the page offers the premium-interest question.
+            $too_long = strpos($stage, 'download limit') !== false;
             wp_send_json_error([
+                'code' => $too_long ? 'too_long' : '',
                 'message' => $user_message . ' (Ref: ' . $ref . ')'
             ]);
         }

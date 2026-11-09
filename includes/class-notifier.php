@@ -236,6 +236,17 @@ class Notifier {
         $this->send('⏱️ Fact-check declined before start', $body, $mrkdwn);
     }
 
+    /** A visitor answered "would you pay to fact-check longer videos?". */
+    public function notify_premium_feedback($interested, $url, $country = '') {
+        $mrkdwn = self::slack_lines([
+            'Answer'  => $interested ? 'Yes, interested' : 'No',
+            'Video'   => $url !== '' ? self::slack_link($url) : '',
+            'Country' => self::slack_escape($country),
+        ]);
+        $body = 'Answer: ' . ($interested ? 'yes' : 'no') . "\nVideo: {$url}\n";
+        $this->send($interested ? '💰 Premium interest: yes' : '💬 Premium interest: no', $body, $mrkdwn);
+    }
+
     /**
      * If today's spend exceeds the configured daily budget, alert the admin.
      * De-duplicated per day so at most one alert per calendar day is sent.

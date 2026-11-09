@@ -54,6 +54,9 @@ captures possible features and the reasoning behind them.
   videos) for paying users: needs accounts or a license/voucher code, payment (e.g. Stripe
   Checkout), a per-user limit instead of the global one, and a cost estimate shown up front
   (Whisper ≈ $0.006/min plus proxy traffic). The preflight message is the natural upsell spot.
+- **Demand test (v0.25.0):** every "too long" message asks *"Would you be interested in
+  fact-checking longer videos for a fee (subscription or micropayments)?"* Yes/No → Slack
+  (💰 / 💬 Premium interest). Count the answers before building anything.
 
 ### Product polish
 

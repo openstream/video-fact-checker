@@ -111,7 +111,7 @@ jQuery(document).ready(function($) {
         vfcPost({ action: 'vfc_preflight', url: videoUrl, website: honeypot })
             .done(function(response) {
                 if (response && response.success && response.data && response.data.ok === false) {
-                    displayError(response.data.message, false);
+                    displayError(response.data.message, false, response.data.too_long ? videoUrl : '');
                 } else {
                     startCheck(videoUrl, honeypot);
                 }
@@ -133,7 +133,7 @@ jQuery(document).ready(function($) {
                     const errorMessage = response.data ? response.data.message : 'An unknown error occurred';
                     // Limits and rejected requests aren't faults the team looks into.
                     const code = response.data ? response.data.code : '';
-                    displayError(errorMessage, code !== 'rate_limited' && code !== 'rejected');
+                    displayError(errorMessage, code !== 'rate_limited' && code !== 'rejected', code === 'too_long' ? videoUrl : '');
                 }
             })
             .fail(function(xhr, status, error) {
@@ -277,7 +277,8 @@ jQuery(document).ready(function($) {
 
     // notified=false drops the "team has been notified" line, for answers that
     // are expected outcomes (too long, limit reached) rather than faults.
-    function displayError(message, notified) {
+    // premiumUrl: set for "too long" answers; adds the premium-interest question.
+    function displayError(message, notified, premiumUrl) {
         console.error('Error:', message);
         stopProgressChecking();
         progressContainer.fadeOut(400, function() {
@@ -299,9 +300,37 @@ jQuery(document).ready(function($) {
                     '<span class="error-note">Our team has been notified and will look into it.</span>'
                 );
             }
+            if (premiumUrl) {
+                errorContainer.append(premiumQuestion(premiumUrl));
+            }
             errorContainer.fadeIn(400);
             analyzeBtn.prop('disabled', false);
         });
+    }
+
+    // "Would you pay for longer videos?" Yes/No; the answer goes to Slack.
+    function premiumQuestion(videoUrl) {
+        const box = $(`
+            <div class="vfc-premium-question">
+                <p>Would you be interested in fact-checking longer videos for a fee, for example with a subscription or micropayments?</p>
+                <div class="vfc-premium-buttons">
+                    <button type="button" data-answer="yes">Yes</button>
+                    <button type="button" data-answer="no">No</button>
+                </div>
+            </div>
+        `);
+        box.on('click', 'button', function() {
+            box.find('button').prop('disabled', true);
+            vfcPost({
+                action: 'vfc_premium_feedback',
+                answer: $(this).data('answer'),
+                url: videoUrl,
+                website: $('#vfc-website').val() || ''
+            }).always(function() {
+                box.find('.vfc-premium-buttons').replaceWith('<p class="vfc-premium-thanks">Thanks for your feedback!</p>');
+            });
+        });
+        return box;
     }
 
     // Add CSS for loading dots animation

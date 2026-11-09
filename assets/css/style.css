@@ -301,6 +301,50 @@ body .site-inner {
     display: block;
 }
 
+/* Premium-interest question under a "too long" message. */
+.vfc-premium-question {
+    margin: 12px 0;
+    padding: 12px 14px;
+    border: 1px solid var(--vfc-error-border);
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.vfc-premium-question p {
+    margin: 0 0 10px;
+}
+
+.vfc-premium-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+/* #id-free selector loses to Twenty Sixteen's button colors, so add the parent class. */
+.vfc-premium-question .vfc-premium-buttons button {
+    min-width: 80px;
+    background: var(--vfc-accent);
+    color: var(--vfc-on-accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.vfc-premium-question .vfc-premium-buttons button:hover {
+    background: var(--vfc-accent-hover);
+}
+
+.vfc-premium-question .vfc-premium-buttons button:disabled {
+    background: var(--vfc-border-strong);
+    color: var(--vfc-text-muted);
+    cursor: not-allowed;
+}
+
+.vfc-premium-question .vfc-premium-thanks {
+    margin: 0;
+    font-weight: 600;
+}
+
 /* Honeypot field (BotGuard): off-screen rather than display:none, which some bots skip. */
 .vfc-hp {
     position: absolute;
