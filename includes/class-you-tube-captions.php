@@ -166,24 +166,31 @@ class YouTubeCaptions {
 
     /**
      * Cheap look at a video before a check starts: duration and whether it has
-     * caption tracks, from the player response alone (no track download, no proxy).
+     * caption tracks, from the player response alone (no track download).
      *
+     * @param string|null $proxy  Route through this proxy (for videos YouTube
+     *                            refuses to this server); a hanging proxy is given
+     *                            up after the first client instead of both.
      * @return array{duration:int,has_captions:bool}|null  null when YouTube
-     *         refuses to answer this server (LOGIN_REQUIRED etc.) or the request fails.
+     *         refuses to answer (LOGIN_REQUIRED etc.) or the request fails.
      */
-    public function probe($video_id) {
+    public function probe($video_id, $proxy = null) {
+        $label = $proxy ? 'proxy' : 'direct';
         foreach (self::CLIENTS as $client) {
-            $resp = $this->player_request($video_id, $client, null);
+            $resp = $this->player_request($video_id, $client, $proxy);
+            if ($resp === null && $proxy) {
+                break;
+            }
             $status = isset($resp['playabilityStatus']['status']) ? $resp['playabilityStatus']['status'] : '';
             if ($status !== 'OK') {
                 continue;
             }
             $duration = isset($resp['videoDetails']['lengthSeconds']) ? (int) $resp['videoDetails']['lengthSeconds'] : 0;
             $has_captions = !empty($resp['captions']['playerCaptionsTracklistRenderer']['captionTracks']);
-            $this->logger->log("InnerTube probe [{$client['clientName']}]: duration={$duration}s captions=" . ($has_captions ? 'yes' : 'no'));
+            $this->logger->log("InnerTube probe [{$label}/{$client['clientName']}]: duration={$duration}s captions=" . ($has_captions ? 'yes' : 'no'));
             return ['duration' => $duration, 'has_captions' => $has_captions];
         }
-        $this->logger->log("InnerTube probe: no usable answer for {$video_id}");
+        $this->logger->log("InnerTube probe [{$label}]: no usable answer for {$video_id}");
         return null;
     }
 

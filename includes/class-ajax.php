@@ -34,9 +34,9 @@ class Ajax {
     /**
      * Quick check before a run starts, so a video we'd refuse anyway (YouTube
      * without subtitles and over the download limit) is declined up front instead
-     * of failing minutes later. Answers {ok:true} whenever it can't tell (not
-     * YouTube, cached, YouTube won't answer this server) — the run itself still
-     * enforces the same rule.
+     * of failing minutes later. Asks YouTube directly, then via the proxy.
+     * Answers {ok:true} whenever it can't tell (not YouTube, cached, no answer
+     * either way) — the run itself and yt-dlp's --match-filter still enforce it.
      */
     public function handle_preflight() {
         if (!check_ajax_referer('vfc_nonce', 'nonce', false)) {
@@ -57,7 +57,15 @@ class Ajax {
         }
 
         $video_id = YouTubeCaptions::extract_video_id($url);
-        $probe = $video_id !== '' ? (new YouTubeCaptions($this->logger))->probe($video_id) : null;
+        $captions = new YouTubeCaptions($this->logger);
+        $probe = $video_id !== '' ? $captions->probe($video_id) : null;
+        if ($probe === null && $video_id !== '') {
+            // Refused to this server (LOGIN_REQUIRED is per video): ask via the proxy.
+            $proxy = $this->processor->build_youtube_proxy();
+            if ($proxy !== '') {
+                $probe = $captions->probe($video_id, $proxy);
+            }
+        }
         $rejection = ($probe && !$probe['has_captions'])
             ? $this->no_caption_rejection($probe['duration'])
             : null;

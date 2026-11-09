@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.24.0
+ * Version: 0.24.1
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.24.0');
+define('VFC_VERSION', '0.24.1');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 11);
 
@@ -332,6 +332,11 @@ register_activation_hook(__FILE__, function() {
         $first = strtotime('next monday 04:00');
         wp_schedule_event($first ?: time() + WEEK_IN_SECONDS, 'weekly', 'vfc_weekly_model_check');
     }
+
+    // Hourly check that the proxy still reaches YouTube.
+    if (!wp_next_scheduled('vfc_hourly_proxy_check')) {
+        wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'vfc_hourly_proxy_check');
+    }
 });
 
 // Also flush rules on deactivation
@@ -349,6 +354,8 @@ register_deactivation_hook(__FILE__, function() {
     if ($model_ts) {
         wp_unschedule_event($model_ts, 'vfc_weekly_model_check');
     }
+
+    wp_clear_scheduled_hook('vfc_hourly_proxy_check');
 });
 
 // Daily cron: run the health-check smoke test, check the Decodo proxy and the
@@ -379,6 +386,15 @@ add_action('vfc_weekly_model_check', function() {
     }
 });
 
+// Hourly cron: can the Decodo proxy reach YouTube? (Slack after 2 failures in a row.)
+add_action('vfc_hourly_proxy_check', function() {
+    try {
+        (new VideoFactChecker\DecodoMonitor())->probe_youtube();
+    } catch (\Throwable $e) {
+        (new VideoFactChecker\Logger())->log("Decodo YouTube probe threw: " . $e->getMessage(), 'error');
+    }
+});
+
 // Safety net: if the plugin was updated (not reactivated) and the events aren't
 // scheduled yet, schedule them on a normal request.
 add_action('init', function() {
@@ -389,6 +405,9 @@ add_action('init', function() {
     if (!wp_next_scheduled('vfc_weekly_model_check')) {
         $first = strtotime('next monday 04:00');
         wp_schedule_event($first ?: time() + WEEK_IN_SECONDS, 'weekly', 'vfc_weekly_model_check');
+    }
+    if (!wp_next_scheduled('vfc_hourly_proxy_check')) {
+        wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'vfc_hourly_proxy_check');
     }
 });
 

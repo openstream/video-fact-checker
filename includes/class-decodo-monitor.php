@@ -19,6 +19,12 @@ class DecodoMonitor {
 
     const API_BASE      = 'https://api.decodo.com/v2/';
     const PROBE_URL     = 'https://ip.decodo.com/json';
+    // ip.decodo.com answers even when YouTube hangs behind the proxy (seen on
+    // 2026-11-05 and 2026-11-09: SSL timeouts to YouTube only), so probe YouTube too.
+    const YOUTUBE_PROBE_URL = 'https://www.youtube.com/robots.txt';
+    // Alert only after this many failed hourly probes in a row (one flaky exit IP
+    // is normal for a rotating residential proxy).
+    const YOUTUBE_FAIL_STREAK = 2;
     const DEFAULT_ALERT_PERCENT = 80;
     const EXPIRY_WARN_DAYS      = 3;
 
@@ -30,7 +36,70 @@ class DecodoMonitor {
 
     public function run() {
         $this->probe_proxy();
+        $this->probe_youtube();
         $this->check_usage();
+    }
+
+    /**
+     * Can the proxy reach YouTube? Two tries (each through a fresh exit IP).
+     * Runs hourly; alerts once per day after YOUTUBE_FAIL_STREAK failed runs in a
+     * row and sends an all-clear when YouTube is reachable again.
+     *
+     * @return bool|null true = reachable, false = not, null = no proxy / no curl.
+     */
+    public function probe_youtube() {
+        $proxy = (new VideoProcessor())->build_youtube_proxy();
+        if ($proxy === '' || !function_exists('curl_init')) {
+            return null;
+        }
+
+        $ok = false;
+        $last = '';
+        for ($try = 1; $try <= 2 && !$ok; $try++) {
+            $ch = \curl_init(self::YOUTUBE_PROBE_URL);
+            \curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            \curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+            \curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+            \curl_setopt($ch, CURLOPT_PROXY, $proxy);
+            $started = microtime(true);
+            \curl_exec($ch);
+            $code = (int) \curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err  = \curl_error($ch);
+            \curl_close($ch);
+            $ok = $code === 200;
+            $last = $code ? "HTTP {$code}" : $err;
+            $this->logger->log(sprintf('Decodo YouTube probe %d: %s (%.1fs)', $try, $ok ? 'OK' : $last, microtime(true) - $started));
+        }
+
+        $streak_key = 'vfc_decodo_yt_fail_streak';
+        $alerted_key = 'vfc_decodo_yt_alerted';
+        if ($ok) {
+            delete_transient($streak_key);
+            if (get_transient($alerted_key)) {
+                delete_transient($alerted_key);
+                (new Notifier($this->logger))->send(
+                    '✅ Decodo proxy reaches YouTube again',
+                    "The hourly check got through to YouTube via the proxy again.\n"
+                );
+            }
+            return true;
+        }
+
+        $streak = (int) get_transient($streak_key) + 1;
+        set_transient($streak_key, $streak, 6 * HOUR_IN_SECONDS);
+        if ($streak >= self::YOUTUBE_FAIL_STREAK && !get_transient($alerted_key)) {
+            set_transient($alerted_key, 1, DAY_IN_SECONDS);
+            (new Notifier($this->logger))->send(
+                '⚠️ Decodo proxy can\'t reach YouTube',
+                "The last {$streak} hourly checks could not reach YouTube through the Decodo proxy\n"
+                . "(last error: {$last}). This is not the 407 balance problem: the proxy answers, but\n"
+                . "YouTube requests through it hang. Meanwhile YouTube videos whose subtitles aren't\n"
+                . "directly reachable fail or take minutes.\n\n"
+                . "Check https://dashboard.decodo.com/ (status, target restrictions, traffic).\n"
+                . "You'll get a message when it works again.\n"
+            );
+        }
+        return false;
     }
 
     /** Returns the HTTP status from the probe (0 on transport error, null if no proxy). */

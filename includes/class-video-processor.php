@@ -147,9 +147,16 @@ class VideoProcessor {
         if ($return_var !== 0 || empty($output)) {
             return 0;
         }
-        $json = json_decode(implode("\n", $output), true);
-        if (is_array($json) && isset($json['duration']) && is_numeric($json['duration'])) {
-            return (int) round((float) $json['duration']);
+        // The command merges stderr, so warnings (e.g. yt-dlp's "Python 3.10 is
+        // deprecated" on prod) precede the JSON line; parse only that line.
+        foreach (array_reverse($output) as $line) {
+            if (strpos(ltrim($line), '{') !== 0) {
+                continue;
+            }
+            $json = json_decode($line, true);
+            if (is_array($json) && isset($json['duration']) && is_numeric($json['duration'])) {
+                return (int) round((float) $json['duration']);
+            }
         }
         return 0;
     }
@@ -316,6 +323,15 @@ class VideoProcessor {
             // Verify YouTube URL detection
             $is_youtube = $this->is_youtube_url($url);
             $this->logger->log("Is YouTube URL: " . ($is_youtube ? 'yes' : 'no'));
+
+            // Enforce the YouTube length limit in yt-dlp itself: the caller only
+            // knows the duration when YouTube told us, and an unknown one used to
+            // mean "download whatever it is" (a 6-hour video included). "<=?" lets
+            // videos without a duration field through.
+            $limit_min = (int) get_option('vfc_youtube_max_download_minutes', 20);
+            if ($is_youtube && $limit_min > 0) {
+                $net_opts .= ' --match-filter ' . escapeshellarg('duration <=? ' . ($limit_min * 60));
+            }
             
             $proxy = $this->build_youtube_proxy();
             if (!empty($proxy)) {
@@ -445,6 +461,15 @@ class VideoProcessor {
                 );
             }
 
+            // Skipped by --match-filter: yt-dlp exits 0 without writing a file.
+            if (stripos(implode("\n", $output), 'does not pass filter') !== false) {
+                throw new ProcessingException(
+                    sprintf("This YouTube video has no subtitles and is longer than %d minutes, too long to transcribe automatically. Please try a shorter video.", $limit_min),
+                    "YouTube: no captions, over the {$limit_min}-min download limit (yt-dlp match-filter)",
+                    "NO_CAPTIONS and duration > limit={$limit_min}min (duration was unknown before the download)"
+                );
+            }
+
             // Find the generated MP3 file
             $mp3_file = str_replace('%(ext)s', 'mp3', $output_file);
             $this->logger->log("Looking for MP3 file: " . $mp3_file);
@@ -499,7 +524,7 @@ class VideoProcessor {
         }
         if ($this->is_youtube_url($url)) {
             if ($proxy) {
-                $command = sprintf('yt-dlp --proxy %s --dump-json %s 2>&1',
+                $command = sprintf('yt-dlp --proxy %s --retries 1 --socket-timeout 15 --dump-json %s 2>&1',
                     escapeshellarg($proxy),
                     escapeshellarg($url)
                 );
