@@ -44,6 +44,14 @@ class Admin {
             'sanitize_callback' => [$this, 'sanitize_nonneg_int'],
         ]);
 
+        // Bot protection: limits on fresh (non-cached) checks, 0 = off (see BotGuard).
+        foreach (['vfc_limit_per_ip_hour', 'vfc_limit_per_ip_day', 'vfc_limit_global_day'] as $limit_option) {
+            register_setting('vfc_settings', $limit_option, [
+                'type' => 'integer',
+                'sanitize_callback' => [$this, 'sanitize_nonneg_int'],
+            ]);
+        }
+
         // Cost accounting: pricing rates (USD) and daily budget.
         // OpenAI chat pricing is derived from the selected model (CostCalculator::MODEL_PRICING),
         // so there are no manual chat-token fields here.

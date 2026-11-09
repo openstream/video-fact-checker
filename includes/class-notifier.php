@@ -221,6 +221,22 @@ class Notifier {
     }
 
     /**
+     * Report a video the preflight turned away before any work (e.g. YouTube
+     * without subtitles and over the download limit). Not a failure: the user
+     * was told why up front.
+     */
+    public function notify_declined($user_message, $reason, $url, $country = '') {
+        $mrkdwn = self::slack_lines([
+            'Video'         => self::slack_link($url),
+            'Shown to user' => self::slack_escape($user_message),
+            'Reason'        => self::slack_escape($reason),
+            'Country'       => self::slack_escape($country),
+        ]);
+        $body = "Video: {$url}\nReason: {$reason}\nShown to user: {$user_message}\n";
+        $this->send('⏱️ Fact-check declined before start', $body, $mrkdwn);
+    }
+
+    /**
      * If today's spend exceeds the configured daily budget, alert the admin.
      * De-duplicated per day so at most one alert per calendar day is sent.
      */

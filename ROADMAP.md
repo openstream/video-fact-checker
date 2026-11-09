@@ -39,11 +39,21 @@ captures possible features and the reasoning behind them.
 
 ### Spend control
 
-- **Global spend cap.** A site-wide daily ceiling on YouTube runs so a usage spike can't
-  blow the proxy budget, with an alert when near the cap.
+- **Global spend cap.** Partly done in v0.24.0: `BotGuard` caps fresh checks per IP
+  (hour/day) and site-wide per day (`vfc_limit_*`, Slack note when hit). TODO: a cap in
+  dollars rather than in runs.
 - **Proactive proxy-limit monitoring.** The reactive part is done (a 407 traffic-limit
   failure produces a clear message + admin email). TODO: *proactively* surface the
   remaining proxy allowance before it runs out.
+
+### Premium: long videos
+
+- **Longer videos as a paid feature.** Since v0.24.0 a preflight (`vfc_preflight`) declines
+  YouTube videos without subtitles over `vfc_youtube_max_download_minutes` *before* the run,
+  with a clear message. Premium would lift that limit (and possibly allow longer non-YouTube
+  videos) for paying users: needs accounts or a license/voucher code, payment (e.g. Stripe
+  Checkout), a per-user limit instead of the global one, and a cost estimate shown up front
+  (Whisper ≈ $0.006/min plus proxy traffic). The preflight message is the natural upsell spot.
 
 ### Product polish
 

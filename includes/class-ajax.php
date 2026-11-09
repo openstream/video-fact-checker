@@ -26,6 +26,130 @@ class Ajax {
 
         add_action('wp_ajax_vfc_refresh_nonce', [$this, 'handle_refresh_nonce']);
         add_action('wp_ajax_nopriv_vfc_refresh_nonce', [$this, 'handle_refresh_nonce']);
+
+        add_action('wp_ajax_vfc_preflight', [$this, 'handle_preflight']);
+        add_action('wp_ajax_nopriv_vfc_preflight', [$this, 'handle_preflight']);
+    }
+
+    /**
+     * Quick check before a run starts, so a video we'd refuse anyway (YouTube
+     * without subtitles and over the download limit) is declined up front instead
+     * of failing minutes later. Answers {ok:true} whenever it can't tell (not
+     * YouTube, cached, YouTube won't answer this server) — the run itself still
+     * enforces the same rule.
+     */
+    public function handle_preflight() {
+        if (!check_ajax_referer('vfc_nonce', 'nonce', false)) {
+            $this->send_invalid_nonce();
+            return;
+        }
+        if (!isset($_POST['url']) || (new BotGuard($this->logger))->is_honeypot_filled()) {
+            wp_send_json_success(['ok' => true]);
+            return;
+        }
+
+        list($url, $nocache) = $this->clean_url(sanitize_text_field($_POST['url']));
+        if (!$this->processor->is_youtube_url($url)
+            || !(bool) get_option('vfc_youtube_use_innertube', true)
+            || (!$nocache && (new CacheManager())->get_cached_result($url))) {
+            wp_send_json_success(['ok' => true]);
+            return;
+        }
+
+        $video_id = YouTubeCaptions::extract_video_id($url);
+        $probe = $video_id !== '' ? (new YouTubeCaptions($this->logger))->probe($video_id) : null;
+        $rejection = ($probe && !$probe['has_captions'])
+            ? $this->no_caption_rejection($probe['duration'])
+            : null;
+        if (!$rejection) {
+            wp_send_json_success(['ok' => true]);
+            return;
+        }
+
+        $this->logger->log("Preflight declined {$url}: " . $rejection->get_technical());
+        try {
+            (new Notifier($this->logger))->notify_declined(
+                $rejection->get_user_message(),
+                $rejection->get_technical(),
+                $url,
+                Geo::current_country_code()
+            );
+        } catch (\Throwable $e) {
+            $this->logger->log("Failed to send decline notification: " . $e->getMessage(), 'error');
+        }
+        wp_send_json_success(['ok' => false, 'message' => $rejection->get_user_message()]);
+    }
+
+    /**
+     * The rule for YouTube videos without subtitles: only the audio-download
+     * fallback can handle them, and only up to vfc_youtube_max_download_minutes.
+     * Returns the exception to throw, or null when the video may be downloaded
+     * (an unknown duration of 0 is let through).
+     */
+    private function no_caption_rejection($duration) {
+        $limit_min = (int) get_option('vfc_youtube_max_download_minutes', 20);
+        if ($limit_min <= 0) {
+            return new ProcessingException(
+                "This YouTube video has no subtitles, so it can't be fact-checked automatically.",
+                "YouTube: no captions, audio-download fallback disabled",
+                "NO_CAPTIONS and vfc_youtube_max_download_minutes=0"
+            );
+        }
+        if ($duration > $limit_min * 60) {
+            return new ProcessingException(
+                sprintf("This YouTube video has no subtitles and is too long (%s) to transcribe automatically. Please try a shorter video (up to %d minutes).", self::format_duration($duration), $limit_min),
+                "YouTube: no captions, over the {$limit_min}-min download limit",
+                sprintf("NO_CAPTIONS and duration=%ds > limit=%ds", $duration, $limit_min * 60)
+            );
+        }
+        return null;
+    }
+
+    /** 754 → "12:34", 22258 → "6:10:58". */
+    private static function format_duration($seconds) {
+        $h = intdiv($seconds, 3600);
+        $m = intdiv($seconds % 3600, 60);
+        $s = $seconds % 60;
+        return $h > 0 ? sprintf('%d:%02d:%02d', $h, $m, $s) : sprintf('%d:%02d', $m, $s);
+    }
+
+    /**
+     * Strip the nocache flag and tracking params from a submitted URL.
+     *
+     * @return array{0:string,1:bool} [cleaned URL, nocache requested]
+     */
+    private function clean_url($raw_url) {
+        $nocache = false;
+        $url = $raw_url;
+
+        // Parse URL to handle nocache parameter robustly
+        $parsed_url = parse_url($raw_url);
+        if (isset($parsed_url['query'])) {
+            $query_params = [];
+            parse_str($parsed_url['query'], $query_params);
+
+            if (isset($query_params['nocache'])) {
+                $nocache = true;
+                unset($query_params['nocache']);
+
+                // Rebuild URL without nocache parameter
+                $url = $parsed_url['scheme'] . '://' . $parsed_url['host'] .
+                       (isset($parsed_url['port']) ? ':' . $parsed_url['port'] : '') .
+                       (isset($parsed_url['path']) ? $parsed_url['path'] : '') .
+                       (empty($query_params) ? '' : '?' . http_build_query($query_params));
+
+                $this->logger->log("Cache bypass requested for URL: " . $url);
+            }
+        }
+
+        // Strip tracking/share query params so the cache key is stable across
+        // the many URL variants of the same video (utm_*, share_*, _t, igsh, …).
+        $normalized_url = VideoProcessor::normalize_url($url);
+        if ($normalized_url !== $url) {
+            $this->logger->log("Normalized URL: " . $url . " -> " . $normalized_url);
+            $url = $normalized_url;
+        }
+        return [$url, $nocache];
     }
 
     /**
@@ -80,52 +204,18 @@ class Ajax {
                 return;
             }
 
-            $raw_url = sanitize_text_field($_POST['url']);
-            $original_url = $raw_url;
+            $guard = new BotGuard($this->logger);
+            if ($guard->is_honeypot_filled()) {
+                $this->logger->log("Bot guard: honeypot filled, request rejected", 'error');
+                wp_send_json_error(['code' => 'rejected', 'message' => 'Your request could not be processed.']);
+                return;
+            }
 
             // Capture the requester's country now, from the live request's IP.
             // Best-effort; '' when it can't be resolved (see Geo). Stored per run.
             $country_code = Geo::current_country_code();
-            
-            // Check for nocache parameter and remove it from the URL
-            $nocache = false;
-            $url = $raw_url;
-            
-            // Parse URL to handle nocache parameter robustly
-            $parsed_url = parse_url($raw_url);
-            if (isset($parsed_url['query'])) {
-                $query_params = [];
-                parse_str($parsed_url['query'], $query_params);
-                
-                if (isset($query_params['nocache'])) {
-                    $nocache = true;
-                    unset($query_params['nocache']);
-                    
-                    // Rebuild URL without nocache parameter
-                    if (empty($query_params)) {
-                        // No more query parameters, remove the ? entirely
-                        $url = $parsed_url['scheme'] . '://' . $parsed_url['host'] . 
-                               (isset($parsed_url['port']) ? ':' . $parsed_url['port'] : '') .
-                               (isset($parsed_url['path']) ? $parsed_url['path'] : '');
-                    } else {
-                        // Rebuild with remaining query parameters
-                        $url = $parsed_url['scheme'] . '://' . $parsed_url['host'] . 
-                               (isset($parsed_url['port']) ? ':' . $parsed_url['port'] : '') .
-                               (isset($parsed_url['path']) ? $parsed_url['path'] : '') .
-                               '?' . http_build_query($query_params);
-                    }
-                    
-                    $this->logger->log("Cache bypass requested for URL: " . $url);
-                }
-            }
 
-            // Strip tracking/share query params so the cache key is stable across
-            // the many URL variants of the same video (utm_*, share_*, _t, igsh, …).
-            $normalized_url = VideoProcessor::normalize_url($url);
-            if ($normalized_url !== $url) {
-                $this->logger->log("Normalized URL: " . $url . " -> " . $normalized_url);
-                $url = $normalized_url;
-            }
+            list($url, $nocache) = $this->clean_url(sanitize_text_field($_POST['url']));
 
             // Correlate this run
             $request_id = substr(md5($url . microtime(true) . wp_rand()), 0, 8);
@@ -184,6 +274,14 @@ class Ajax {
                 $this->logger->log("Skipping cache check due to nocache parameter");
             }
 
+            // A fresh check costs money: count it, or refuse when a limit is hit.
+            $limit_message = $guard->claim_fresh_check();
+            if ($limit_message !== '') {
+                $this->set_status('error');
+                wp_send_json_error(['code' => 'rate_limited', 'message' => $limit_message]);
+                return;
+            }
+
             // Obtain a transcript. For YouTube we first try captions (InnerTube),
             // which needs no audio download and no Whisper; only if that fails do
             // we download the audio and transcribe it. Other platforms download
@@ -204,26 +302,13 @@ class Ajax {
                 } else {
                     // No captions: fall back to audio download + Whisper, but only
                     // for videos within the configured length limit.
-                    $limit_min = (int) get_option('vfc_youtube_max_download_minutes', 20);
                     $duration = $this->processor->get_last_caption_duration();
                     if ($duration <= 0) {
                         $duration = $this->processor->get_video_duration_seconds($url);
                     }
-                    if ($limit_min <= 0) {
-                        throw new ProcessingException(
-                            "This YouTube video has no subtitles, so it can't be fact-checked automatically.",
-                            "YouTube: no captions, audio-download fallback disabled",
-                            "NO_CAPTIONS and vfc_youtube_max_download_minutes=0"
-                        );
-                    }
-                    if ($duration > 0 && $duration > $limit_min * 60) {
-                        $mins = floor($duration / 60);
-                        $secs = $duration % 60;
-                        throw new ProcessingException(
-                            sprintf("This YouTube video has no subtitles and is too long (%d:%02d) to transcribe automatically. Please try a shorter video (up to %d minutes).", $mins, $secs, $limit_min),
-                            "YouTube: no captions, over the {$limit_min}-min download limit",
-                            sprintf("NO_CAPTIONS and duration=%ds > limit=%ds", $duration, $limit_min * 60)
-                        );
+                    $rejection = $this->no_caption_rejection($duration);
+                    if ($rejection) {
+                        throw $rejection;
                     }
                     $audio_file = $this->processor->download_video($url);
                     $this->set_status('transcribing');

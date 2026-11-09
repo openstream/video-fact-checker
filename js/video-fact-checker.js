@@ -102,16 +102,38 @@ jQuery(document).ready(function($) {
         errorContainer.hide().empty();
         analyzeBtn.prop('disabled', true);
         
+        updateProgressBar(0);
+        statusMessage.text('Checking video...');
+        const honeypot = $('#vfc-website').val() || '';
+
+        // Preflight: decline videos we'd refuse anyway (e.g. too long without
+        // subtitles) before the run starts. Any problem here just runs the check.
+        vfcPost({ action: 'vfc_preflight', url: videoUrl, website: honeypot })
+            .done(function(response) {
+                if (response && response.success && response.data && response.data.ok === false) {
+                    displayError(response.data.message, false);
+                } else {
+                    startCheck(videoUrl, honeypot);
+                }
+            })
+            .fail(function() {
+                startCheck(videoUrl, honeypot);
+            });
+    });
+
+    function startCheck(videoUrl, honeypot) {
         updateStatus('starting');
-        
-        vfcPost({ action: 'vfc_process_video', url: videoUrl })
+
+        vfcPost({ action: 'vfc_process_video', url: videoUrl, website: honeypot })
             .done(function(response) {
                 console.log('Server response:', response);
                 if (response.success) {
                     displayResults(response.data);
                 } else {
                     const errorMessage = response.data ? response.data.message : 'An unknown error occurred';
-                    displayError(errorMessage);
+                    // Limits and rejected requests aren't faults the team looks into.
+                    const code = response.data ? response.data.code : '';
+                    displayError(errorMessage, code !== 'rate_limited' && code !== 'rejected');
                 }
             })
             .fail(function(xhr, status, error) {
@@ -122,7 +144,7 @@ jQuery(document).ready(function($) {
 
         // Start progress checking
         startProgressChecking();
-    });
+    }
 
     let progressInterval = null;
 
@@ -253,7 +275,9 @@ jQuery(document).ready(function($) {
         });
     }
 
-    function displayError(message) {
+    // notified=false drops the "team has been notified" line, for answers that
+    // are expected outcomes (too long, limit reached) rather than faults.
+    function displayError(message, notified) {
         console.error('Error:', message);
         stopProgressChecking();
         progressContainer.fadeOut(400, function() {
@@ -265,12 +289,16 @@ jQuery(document).ready(function($) {
             const errorHtml = `
                 <div class="error-message">
                     <span class="error-text"></span>
-                    <span class="error-note">Our team has been notified and will look into it.</span>
                 </div>
             `;
             errorContainer.html(errorHtml);
             // Set text via .text() so the message can never inject markup.
             errorContainer.find('.error-text').text(message);
+            if (notified !== false) {
+                errorContainer.find('.error-message').append(
+                    '<span class="error-note">Our team has been notified and will look into it.</span>'
+                );
+            }
             errorContainer.fadeIn(400);
             analyzeBtn.prop('disabled', false);
         });

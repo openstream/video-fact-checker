@@ -165,6 +165,29 @@ class YouTubeCaptions {
     }
 
     /**
+     * Cheap look at a video before a check starts: duration and whether it has
+     * caption tracks, from the player response alone (no track download, no proxy).
+     *
+     * @return array{duration:int,has_captions:bool}|null  null when YouTube
+     *         refuses to answer this server (LOGIN_REQUIRED etc.) or the request fails.
+     */
+    public function probe($video_id) {
+        foreach (self::CLIENTS as $client) {
+            $resp = $this->player_request($video_id, $client, null);
+            $status = isset($resp['playabilityStatus']['status']) ? $resp['playabilityStatus']['status'] : '';
+            if ($status !== 'OK') {
+                continue;
+            }
+            $duration = isset($resp['videoDetails']['lengthSeconds']) ? (int) $resp['videoDetails']['lengthSeconds'] : 0;
+            $has_captions = !empty($resp['captions']['playerCaptionsTracklistRenderer']['captionTracks']);
+            $this->logger->log("InnerTube probe [{$client['clientName']}]: duration={$duration}s captions=" . ($has_captions ? 'yes' : 'no'));
+            return ['duration' => $duration, 'has_captions' => $has_captions];
+        }
+        $this->logger->log("InnerTube probe: no usable answer for {$video_id}");
+        return null;
+    }
+
+    /**
      * POST the InnerTube player request for one client. Returns the decoded
      * JSON array, or null on a transport-level failure.
      */

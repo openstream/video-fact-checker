@@ -8,6 +8,12 @@
                    placeholder="Video URL (must contain speech)">
         </div>
 
+        <!-- Honeypot: invisible to people, bots that fill every field get rejected (BotGuard). -->
+        <div class="vfc-hp" aria-hidden="true">
+            <label for="vfc-website">Website</label>
+            <input type="text" id="vfc-website" name="website" tabindex="-1" autocomplete="off">
+        </div>
+
         <div class="form-actions">
             <button type="submit" id="analyze-btn">Fact check video</button>
         </div>

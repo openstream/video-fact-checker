@@ -232,6 +232,36 @@
             </tr>
 
             <tr>
+                <th colspan="2"><h2 style="margin-top: 2em;">Bot protection</h2></th>
+            </tr>
+            <tr>
+                <td colspan="2">
+                    <p class="description">
+                        Limits on <em>fresh</em> fact-checks (cached results never count). Logged-in admins are exempt.
+                        <code>0</code> disables a limit. When one is hit, Slack gets one note per window.
+                    </p>
+                </td>
+            </tr>
+            <?php foreach ([
+                'vfc_limit_per_ip_hour' => ['Per IP and hour', \VideoFactChecker\BotGuard::DEFAULT_PER_IP_HOUR],
+                'vfc_limit_per_ip_day'  => ['Per IP and day', \VideoFactChecker\BotGuard::DEFAULT_PER_IP_DAY],
+                'vfc_limit_global_day'  => ['All visitors per day', \VideoFactChecker\BotGuard::DEFAULT_GLOBAL_DAY],
+            ] as $vfc_opt => list($vfc_label, $vfc_default)): ?>
+            <tr>
+                <th scope="row">
+                    <label for="<?php echo esc_attr($vfc_opt); ?>"><?php echo esc_html($vfc_label); ?></label>
+                </th>
+                <td>
+                    <input type="number" min="0" step="1"
+                           id="<?php echo esc_attr($vfc_opt); ?>"
+                           name="<?php echo esc_attr($vfc_opt); ?>"
+                           value="<?php echo esc_attr(get_option($vfc_opt, $vfc_default)); ?>"
+                           class="small-text">
+                </td>
+            </tr>
+            <?php endforeach; ?>
+
+            <tr>
                 <th colspan="2"><h2 style="margin-top: 2em;">Proxy (YouTube only)</h2></th>
             </tr>
             <tr>
