@@ -17,6 +17,16 @@ class TranscriptionService {
 
         $this->logger->log("Starting transcription for: $audio_file");
 
+        // OpenAI rejects uploads over 25 MB with an unhelpful 413.
+        $size = (int) filesize($audio_file);
+        if ($size > 25 * 1024 * 1024) {
+            throw new ProcessingException(
+                "This video is too long to transcribe automatically. Please try a shorter video.",
+                "Whisper upload (audio over 25 MB)",
+                sprintf("audio file %.1f MB > 25 MB Whisper limit", $size / 1048576)
+            );
+        }
+
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, 'https://api.openai.com/v1/audio/transcriptions');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);

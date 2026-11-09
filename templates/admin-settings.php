@@ -220,13 +220,15 @@
                     <input type="number" min="0" step="1"
                            id="vfc_youtube_max_download_minutes"
                            name="vfc_youtube_max_download_minutes"
-                           value="<?php echo esc_attr(get_option('vfc_youtube_max_download_minutes', 20)); ?>"
+                           value="<?php echo esc_attr(get_option('vfc_youtube_max_download_minutes', \VideoFactChecker\VideoProcessor::DEFAULT_MAX_DOWNLOAD_MINUTES)); ?>"
                            class="small-text">
                     <p class="description">
                         When a YouTube video has <em>no</em> subtitles, its audio is downloaded (via proxy) and
                         transcribed with Whisper — but only up to this length. Longer videos without subtitles are
                         rejected with a clear message. Set to <code>0</code> to disable the audio-download fallback
                         entirely (videos without subtitles are then always rejected).
+                        Cost ≈ $0.01 per minute (Whisper $0.006 + ~0.9 MB proxy traffic); keep it at or below
+                        <code>65</code>, where the audio reaches Whisper's 25 MB upload cap.
                     </p>
                 </td>
             </tr>

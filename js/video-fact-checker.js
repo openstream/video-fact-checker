@@ -131,9 +131,10 @@ jQuery(document).ready(function($) {
                     displayResults(response.data);
                 } else {
                     const errorMessage = response.data ? response.data.message : 'An unknown error occurred';
-                    // Limits and rejected requests aren't faults the team looks into.
+                    // Limits, rejected requests, too long / no speech aren't faults the team looks into.
                     const code = response.data ? response.data.code : '';
-                    displayError(errorMessage, code !== 'rate_limited' && code !== 'rejected', code === 'too_long' ? videoUrl : '');
+                    const expected = ['rate_limited', 'rejected', 'too_long', 'no_speech'].indexOf(code) !== -1;
+                    displayError(errorMessage, !expected, code === 'too_long' ? videoUrl : '');
                 }
             })
             .fail(function(xhr, status, error) {

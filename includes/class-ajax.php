@@ -127,7 +127,7 @@ class Ajax {
      * (an unknown duration of 0 is let through).
      */
     private function no_caption_rejection($duration) {
-        $limit_min = (int) get_option('vfc_youtube_max_download_minutes', 20);
+        $limit_min = (int) get_option('vfc_youtube_max_download_minutes', VideoProcessor::DEFAULT_MAX_DOWNLOAD_MINUTES);
         if ($limit_min <= 0) {
             return new ProcessingException(
                 "This YouTube video has no subtitles, so it can't be fact-checked automatically.",
@@ -369,6 +369,24 @@ class Ajax {
 
             $this->logger->log("Transcript source: " . $transcript_source);
 
+            // Music and other near-speechless videos: stop before the analysis.
+            $speech_seconds = $used_captions
+                ? $this->processor->get_last_caption_duration()
+                : $this->processor->get_last_audio_seconds();
+            $speech = SpeechCheck::analyze($transcription, (float) $speech_seconds);
+            $this->logger->log(sprintf(
+                "Speech check: words=%d wpm=%s distinct=%.2f%s",
+                $speech['words'], $speech['wpm'] === null ? '?' : $speech['wpm'], $speech['unique'],
+                $speech['ok'] ? '' : ' -> rejected (' . $speech['reason'] . ')'
+            ));
+            if (!$speech['ok']) {
+                throw new ProcessingException(
+                    "This video contains too little speech to fact-check (music or mostly silent?). Please try a video in which someone talks.",
+                    "Too little speech",
+                    "LOW_SPEECH: " . $speech['reason']
+                );
+            }
+
             $this->set_status('analyzing');
             $analysis = $this->fact_checker->check_facts($transcription);
 
@@ -527,9 +545,15 @@ class Ajax {
 
             // Send the concise, human-friendly message to the user.
             // Over the length limit: the page offers the premium-interest question.
-            $too_long = strpos($stage, 'download limit') !== false;
+            // Too little speech is the video's nature, not a fault to look into.
+            $code = '';
+            if (strpos($stage, 'download limit') !== false) {
+                $code = 'too_long';
+            } elseif ($stage === 'Too little speech') {
+                $code = 'no_speech';
+            }
             wp_send_json_error([
-                'code' => $too_long ? 'too_long' : '',
+                'code' => $code,
                 'message' => $user_message . ' (Ref: ' . $ref . ')'
             ]);
         }

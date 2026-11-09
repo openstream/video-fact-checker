@@ -2,6 +2,9 @@
 namespace VideoFactChecker;
 
 class VideoProcessor {
+    /** Default for vfc_youtube_max_download_minutes (YouTube without subtitles). */
+    const DEFAULT_MAX_DOWNLOAD_MINUTES = 45;
+
     private $logger;
     private $upload_dir;
 
@@ -319,6 +322,11 @@ class VideoProcessor {
             // Bound yt-dlp's own retries/timeout so a stuck proxy node fails fast;
             // our outer retry loop then re-runs (often getting a fresh proxy IP).
             $net_opts = '--retries 3 --socket-timeout 20';
+
+            // Speech-sized audio for Whisper: mono, 16 kHz, 48 kbit/s ≈ 0.36 MB/min,
+            // so up to ~69 min fit OpenAI's 25 MB upload cap (the old VBR-0 mp3 ran
+            // ~1 MB/min and broke past ~22 min). The download itself is unchanged.
+            $audio_opts = '--audio-quality 48K --postprocessor-args ' . escapeshellarg('ExtractAudio:-ac 1 -ar 16000');
             
             // Verify YouTube URL detection
             $is_youtube = $this->is_youtube_url($url);
@@ -328,7 +336,7 @@ class VideoProcessor {
             // knows the duration when YouTube told us, and an unknown one used to
             // mean "download whatever it is" (a 6-hour video included). "<=?" lets
             // videos without a duration field through.
-            $limit_min = (int) get_option('vfc_youtube_max_download_minutes', 20);
+            $limit_min = (int) get_option('vfc_youtube_max_download_minutes', self::DEFAULT_MAX_DOWNLOAD_MINUTES);
             if ($is_youtube && $limit_min > 0) {
                 $net_opts .= ' --match-filter ' . escapeshellarg('duration <=? ' . ($limit_min * 60));
             }
@@ -348,10 +356,11 @@ class VideoProcessor {
                     // almost always offers a separate audio stream; the fallbacks
                     // only kick in if it genuinely doesn't.
                     $command = sprintf(
-                        'yt-dlp --proxy %s %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
+                        'yt-dlp --proxy %s %s -f %s -x --audio-format mp3 %s %s -o %s %s 2>&1',
                         escapeshellarg($proxy),
                         $net_opts,
                         escapeshellarg('bestaudio/best'),
+                        $audio_opts,
                         $title_opt,
                         escapeshellarg($output_file),
                         escapeshellarg($url)
@@ -374,10 +383,11 @@ class VideoProcessor {
                         // Audio-only selection (see the proxy branch above) — keeps
                         // downloads small even on the cookies path.
                         $command = sprintf(
-                            'yt-dlp --cookies %s %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
+                            'yt-dlp --cookies %s %s -f %s -x --audio-format mp3 %s %s -o %s %s 2>&1',
                             escapeshellarg($cookies_file),
                             $net_opts,
                             escapeshellarg('bestaudio/best'),
+                            $audio_opts,
                             $title_opt,
                             escapeshellarg($output_file),
                             escapeshellarg($url)
@@ -396,9 +406,10 @@ class VideoProcessor {
                 // "download" format (h264 + aac) does carry real audio, so prefer it,
                 // then fall back to bestaudio / best for all other platforms.
                 $command = sprintf(
-                    'yt-dlp %s -f %s -x --audio-format mp3 --audio-quality 0 %s -o %s %s 2>&1',
+                    'yt-dlp %s -f %s -x --audio-format mp3 %s %s -o %s %s 2>&1',
                     $net_opts,
                     escapeshellarg('download/bestaudio/best'),
+                    $audio_opts,
                     $title_opt,
                     escapeshellarg($output_file),
                     escapeshellarg($url)
