@@ -56,7 +56,7 @@ class Ajax {
         // A few answers per visitor per day, plus a global cap — keyed by IP hash
         // and day, not by the URL an attacker could vary (GitHub AI Scan #11).
         if ((new BotGuard($this->logger))->claim_feedback()) {
-            $this->logger->log("Premium feedback: {$answer} for {$url}");
+            $this->logger->log("Premium feedback: {$answer} for " . substr($url, 0, UrlGuard::MAX_LENGTH));
             try {
                 (new Notifier($this->logger))->notify_premium_feedback($answer === 'yes', $url, Geo::current_country_code());
             } catch (\Throwable $e) {
@@ -84,7 +84,8 @@ class Ajax {
         }
 
         list($url, $nocache) = $this->clean_url(sanitize_text_field(wp_unslash($_POST['url'])));
-        if (!$this->processor->is_youtube_url($url)
+        if (UrlGuard::rejection($url) !== ''
+            || !$this->processor->is_youtube_url($url)
             || !(bool) get_option('vfc_youtube_use_innertube', true)
             || (!$nocache && (new CacheManager())->get_cached_result($url))) {
             wp_send_json_success(['ok' => true]);
@@ -102,15 +103,19 @@ class Ajax {
         }
 
         $this->logger->log("Preflight declined {$url}: " . $rejection->get_technical());
-        try {
-            (new Notifier($this->logger))->notify_declined(
-                $rejection->get_user_message(),
-                $rejection->get_technical(),
-                $url,
-                Geo::current_country_code()
-            );
-        } catch (\Throwable $e) {
-            $this->logger->log("Failed to send decline notification: " . $e->getMessage(), 'error');
+        // Once per video per 6 h (like the probe cache), within the notification
+        // allowance: a cached decline must not become a Slack flood (#12).
+        if ((new BotGuard($this->logger))->claim_notification('declined', $video_id, 6 * HOUR_IN_SECONDS)) {
+            try {
+                (new Notifier($this->logger))->notify_declined(
+                    $rejection->get_user_message(),
+                    $rejection->get_technical(),
+                    $url,
+                    Geo::current_country_code()
+                );
+            } catch (\Throwable $e) {
+                $this->logger->log("Failed to send decline notification: " . $e->getMessage(), 'error');
+            }
         }
         wp_send_json_success(['ok' => false, 'too_long' => true, 'message' => $rejection->get_user_message()]);
     }
@@ -179,12 +184,19 @@ class Ajax {
 
     /**
      * Strip the nocache flag and tracking params from a submitted URL.
+     * nocache (a fresh check that is neither saved nor counted against the daily
+     * budget) is honoured for admins only; for everyone else the flag is just
+     * dropped (GitHub AI Scan #15). Oversized input comes back untouched and
+     * unlogged, for UrlGuard::rejection() to refuse (#16).
      *
      * @return array{0:string,1:bool} [cleaned URL, nocache requested]
      */
     private function clean_url($raw_url) {
         $nocache = false;
         $url = $raw_url;
+        if (UrlGuard::is_oversized($raw_url)) {
+            return [$raw_url, false];
+        }
 
         // Parse URL to handle nocache parameter robustly
         $parsed_url = wp_parse_url($raw_url);
@@ -193,7 +205,7 @@ class Ajax {
             parse_str($parsed_url['query'], $query_params);
 
             if (isset($query_params['nocache'])) {
-                $nocache = true;
+                $nocache = current_user_can('manage_options');
                 unset($query_params['nocache']);
 
                 // Rebuild URL without nocache parameter
@@ -202,7 +214,9 @@ class Ajax {
                        (isset($parsed_url['path']) ? $parsed_url['path'] : '') .
                        (empty($query_params) ? '' : '?' . http_build_query($query_params));
 
-                $this->logger->log("Cache bypass requested for URL: " . $url);
+                $this->logger->log($nocache
+                    ? "Cache bypass requested for URL: " . $url
+                    : "nocache ignored (not an admin) for URL: " . $url);
             }
         }
 
@@ -314,19 +328,23 @@ class Ajax {
                         }
                     }
                     $cached_row = $cache_manager->get_by_short_url($cached_result['short_url']);
-                    $this->notify_check([
-                        'url'       => $url,
-                        'share_url' => home_url('/share/' . $cached_result['short_url'] . '/'),
-                        'title'     => $cached_row && !empty($cached_row->video_title) ? $cached_row->video_title : '',
-                        'summary'   => $cached_row && !empty($cached_row->meta_description) ? $cached_row->meta_description : '',
-                        'platform'  => VideoProcessor::detect_platform($url),
-                        'cached'    => true,
-                        'cached_at' => $cached_at,
-                        'model'     => isset($cached_result['used_model']) ? $cached_result['used_model'] : '',
-                        'seconds'   => microtime(true) - $started,
-                        'country'   => $country_code,
-                        'ref'       => $request_id,
-                    ]);
+                    // A cache hit passes no other limit, so its Slack note has its
+                    // own: once per video and visitor per day, plus caps (#12).
+                    if ($guard->claim_notification('cache-hit', $url, DAY_IN_SECONDS, true)) {
+                        $this->notify_check([
+                            'url'       => $url,
+                            'share_url' => home_url('/share/' . $cached_result['short_url'] . '/'),
+                            'title'     => $cached_row && !empty($cached_row->video_title) ? $cached_row->video_title : '',
+                            'summary'   => $cached_row && !empty($cached_row->meta_description) ? $cached_row->meta_description : '',
+                            'platform'  => VideoProcessor::detect_platform($url),
+                            'cached'    => true,
+                            'cached_at' => $cached_at,
+                            'model'     => isset($cached_result['used_model']) ? $cached_result['used_model'] : '',
+                            'seconds'   => microtime(true) - $started,
+                            'country'   => $country_code,
+                            'ref'       => $request_id,
+                        ]);
+                    }
                     wp_send_json_success([
                         'transcription' => $cached_result['transcription'],
                         'analysis' => $cached_result['analysis'],

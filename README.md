@@ -15,7 +15,7 @@ Use the shortcode `[video_fact_checker]` in any post or page to display the vide
 
 ### Cache Bypass
 
-To skip caching for testing purposes, add `?nocache=1` to any video URL:
+Logged-in administrators can skip the cache for testing by adding `?nocache=1` to any video URL (for everyone else the flag is ignored):
 - **Normal**: `https://www.youtube.com/watch?v=VIDEO_ID`
 - **No cache**: `https://www.youtube.com/watch?v=VIDEO_ID?nocache=1`
 

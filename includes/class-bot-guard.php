@@ -21,9 +21,10 @@ if (!defined('ABSPATH')) {
  *
  * Check-and-count runs under a MySQL named lock (GET_LOCK), so parallel
  * requests can't all read the same counter and slip past a limit (GitHub AI
- * Scan #6). The YouTube preflight and the premium-feedback answer have their own,
- * separate allowances (#7, #11): they cost no OpenAI money but do outbound
- * requests / Slack messages.
+ * Scan #6). The YouTube preflight, the premium-feedback answer and the Slack
+ * notes for cache hits / preflight declines have their own, separate allowances
+ * (#7, #11, #12): they cost no OpenAI money but do outbound requests / Slack
+ * messages.
  */
 class BotGuard {
 
@@ -40,6 +41,10 @@ class BotGuard {
     // Premium-interest answers that reach Slack.
     const FEEDBACK_PER_IP_DAY = 3;
     const FEEDBACK_GLOBAL_DAY = 50;
+
+    // Slack notes for free events (cache hits, preflight declines).
+    const NOTIFY_PER_IP_HOUR = 10;
+    const NOTIFY_GLOBAL_DAY  = 300;
 
     const LOCK_NAME = 'vfc_bot_guard';
 
@@ -121,6 +126,35 @@ class BotGuard {
             ['vfc_bg_fb_' . $ip_key . '_' . gmdate('Ymd'), self::FEEDBACK_PER_IP_DAY, DAY_IN_SECONDS, 'feedback per-IP daily'],
             ['vfc_bg_fg_' . gmdate('Ymd'),                 self::FEEDBACK_GLOBAL_DAY, DAY_IN_SECONDS, 'feedback global daily'],
         ]) === null;
+    }
+
+    /**
+     * Allowance for one Slack note about an event that costs us nothing and so
+     * passes no other limit: a cache hit, a preflight decline (GitHub AI Scan
+     * #12). The same $subject (with $per_visitor: from the same IP) is reported
+     * once per $ttl, and there is a per-IP and a global cap on top. The event
+     * itself still happens and is logged; only the Slack message is skipped.
+     * Admins are exempt.
+     */
+    public function claim_notification($kind, $subject, $ttl = DAY_IN_SECONDS, $per_visitor = false) {
+        if (current_user_can('manage_options')) {
+            return true;
+        }
+        $ip_key = self::ip_key(self::client_ip());
+        $seen = 'vfc_bg_ns_' . md5($kind . '|' . $subject . ($per_visitor ? '|' . $ip_key : ''));
+        if (get_transient($seen)) {
+            return false;
+        }
+        $hit = $this->claim([
+            ['vfc_bg_nh_' . $ip_key . '_' . gmdate('YmdH'), self::NOTIFY_PER_IP_HOUR, HOUR_IN_SECONDS, 'notification per-IP hourly'],
+            ['vfc_bg_ng_' . gmdate('Ymd'),                  self::NOTIFY_GLOBAL_DAY,  DAY_IN_SECONDS,  'notification global daily'],
+        ]);
+        if ($hit !== null) {
+            $this->logger->log("Bot guard: {$hit[3]} limit ({$hit[1]}) reached for IP hash {$ip_key}; {$kind} not sent to Slack", 'error');
+            return false;
+        }
+        set_transient($seen, 1, $ttl);
+        return true;
     }
 
     /**

@@ -7,26 +7,94 @@ if (!defined('ABSPATH')) {
 
 /**
  * Gatekeeper for the video URL a visitor submits, before it reaches yt-dlp or
- * any outbound request (GitHub AI Scan #8 argument injection, #1/#9 SSRF).
+ * any outbound request (GitHub AI Scan #8 argument injection, #1/#9/#13 SSRF).
  *
  *   - only absolute http(s) URLs with a host, no user:pass@, port 80/443 only;
- *   - the host must not be localhost/.local/.internal or an IP literal, and every
- *     address it resolves to must be public (no loopback, private, link-local,
- *     reserved, e.g. 169.254.169.254 cloud metadata).
+ *   - the host must belong to one of the supported video platforms (PLATFORMS).
  *
- * yt-dlp additionally runs with "--" before the URL and without its generic
- * extractor (VideoProcessor::YTDLP_SAFE_OPTS), so only site-specific extractors
- * (YouTube, TikTok, Instagram, …) fetch anything. That also covers redirects and
- * DNS rebinding, which a check up front alone cannot.
+ * v0.27.0 accepted any host whose DNS records were public. That check ran
+ * before the bot limits, so slow attacker-controlled DNS could tie up PHP
+ * workers (#14/#17), and yt-dlp resolved the name again on its own, so DNS
+ * rebinding and redirects slipped past it (#13). With a fixed list of platform
+ * domains there is no lookup on our side at all, and yt-dlp only loads the
+ * extractors of those platforms (VideoProcessor::ytdlp_safe_opts()), never
+ * the ones for self-hosted services on arbitrary domains (OwnCloud, PeerTube …).
  */
 class UrlGuard {
+
+    /** Longer input is refused before it is parsed or logged (#16). */
+    const MAX_LENGTH = 2048;
+
+    /**
+     * Supported domain (subdomains included) => yt-dlp extractor names for it,
+     * as --use-extractors regexes (matched case-insensitively against the whole
+     * name). 'generic' = yt-dlp's generic extractor, only on paths listed in
+     * GENERIC_PATHS. Extend via the vfc_supported_platforms filter.
+     */
+    const PLATFORMS = [
+        'youtube.com'     => 'youtube.*',
+        'youtu.be'        => 'youtube.*',
+        'tiktok.com'      => 'tiktok.*,vm\.tiktok',
+        'instagram.com'   => 'instagram.*',
+        'x.com'           => 'twitter.*',
+        'twitter.com'     => 'twitter.*',
+        't.co'            => 'twitter.*',
+        'video.twimg.com' => 'generic',
+        'facebook.com'    => 'facebook.*',
+        'fb.watch'        => 'facebook.*',
+        'linkedin.com'    => 'linkedin.*,generic',
+        'vimeo.com'       => 'vimeo.*',
+        'reddit.com'      => 'reddit',
+        'redd.it'         => 'reddit',
+        'twitch.tv'       => 'twitch.*',
+        'dailymotion.com' => 'dailymotion.*',
+        'dai.ly'          => 'dailymotion.*',
+        'snapchat.com'    => 'snapchat.*',
+        'bilibili.com'    => 'bilibili.*',
+        'rumble.com'      => 'rumble.*',
+        'bitchute.com'    => 'bitchute.*',
+        'odysee.com'      => 'lbry.*',
+        't.me'            => 'telegram:embed',
+    ];
+
+    /**
+     * Where the generic extractor may run (domain => path regex): direct media
+     * files on the X/Twitter video CDN and LinkedIn posts, which have no extractor
+     * of their own (both real past submissions). Never on all of linkedin.com:
+     * /redir/redirect?url=… is an open redirect, and the generic extractor
+     * follows redirects to any host.
+     */
+    const GENERIC_PATHS = [
+        'video.twimg.com' => '#^/#',
+        'linkedin.com'    => '#^/(posts|feed/update)/#',
+    ];
+
+    /** True when yt-dlp's generic extractor may handle $url (see GENERIC_PATHS). */
+    public static function allows_generic($url) {
+        $parts = wp_parse_url((string) $url);
+        $domain = is_array($parts) && isset($parts['host']) ? self::platform_domain($parts['host']) : '';
+        $paths = (array) apply_filters('vfc_generic_extractor_paths', self::GENERIC_PATHS);
+        return $domain !== '' && isset($paths[$domain])
+            && preg_match($paths[$domain], isset($parts['path']) ? $parts['path'] : '/') === 1;
+    }
+
+    /** PLATFORMS after the vfc_supported_platforms filter, keys lower-case. */
+    public static function platforms() {
+        $platforms = (array) apply_filters('vfc_supported_platforms', self::PLATFORMS);
+        return array_change_key_case($platforms, CASE_LOWER);
+    }
+
+    /** True when $raw is too long to be worth parsing or logging. */
+    public static function is_oversized($raw) {
+        return strlen((string) $raw) > self::MAX_LENGTH;
+    }
 
     /**
      * @return string '' when the URL may be processed, otherwise the user-facing reason.
      */
     public static function rejection($url) {
         $url = (string) $url;
-        if ($url === '' || strlen($url) > 2048 || preg_match('/[\s\x00-\x1f\x7f]/', $url)) {
+        if ($url === '' || self::is_oversized($url) || preg_match('/[\s\x00-\x1f\x7f]/', $url)) {
             return "Please enter a valid video link (starting with https://).";
         }
         $parts = wp_parse_url($url);
@@ -36,67 +104,24 @@ class UrlGuard {
         if (!in_array(strtolower($parts['scheme']), ['http', 'https'], true)) {
             return "Only http(s) video links are supported.";
         }
-        if (isset($parts['user']) || isset($parts['pass'])) {
+        if (isset($parts['user']) || isset($parts['pass'])
+            || (isset($parts['port']) && !in_array((int) $parts['port'], [80, 443], true))) {
             return "This link isn't a supported video URL. Please check the address and try again.";
         }
-        if (isset($parts['port']) && !in_array((int) $parts['port'], [80, 443], true)) {
-            return "This link isn't a supported video URL. Please check the address and try again.";
-        }
-
-        $host = strtolower(rtrim($parts['host'], '.'));
-        if (self::is_ip_literal($host)
-            || $host === 'localhost'
-            || strpos($host, '.') === false
-            || preg_match('/\.(localhost|local|internal|lan|home|intranet|corp)$/', $host)) {
-            return "This link isn't a supported video URL. Please check the address and try again.";
-        }
-
-        $ips = self::resolve($host);
-        if (!$ips) {
-            return "This link's address could not be found. Please check it and try again.";
-        }
-        foreach ($ips as $ip) {
-            if (!self::is_public_ip($ip)) {
-                return "This link isn't a supported video URL. Please check the address and try again.";
-            }
+        if (self::platform_domain($parts['host']) === '') {
+            return "Links from this site aren't supported. Please use a video link from YouTube, TikTok, Instagram, X, Facebook, LinkedIn, Vimeo or another major video platform.";
         }
         return '';
     }
 
-    private static function is_ip_literal($host) {
-        $h = trim($host, '[]');
-        // Also catches decimal/octal/hex forms like 2130706433 or 0x7f.1.
-        return filter_var($h, FILTER_VALIDATE_IP) !== false
-            || preg_match('/^(0x[0-9a-f]+|[0-9]+)(\.(0x[0-9a-f]+|[0-9]+)){0,3}$/i', $h);
-    }
-
-    public static function is_public_ip($ip) {
-        return filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        ) !== false
-            // PHP's flags miss a few special ranges: CGNAT, IPv4-mapped IPv6, ULA, NAT64.
-            && !preg_match('/^(100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|0\.|::ffff:|f[cd][0-9a-f]{2}:|64:ff9b:)/i', $ip);
-    }
-
-    /** All A/AAAA records for $host ([] when it doesn't resolve). */
-    private static function resolve($host) {
-        $ips = [];
-        $v4 = @gethostbynamel($host);
-        if (is_array($v4)) {
-            $ips = $v4;
-        }
-        if (function_exists('dns_get_record')) {
-            $aaaa = @dns_get_record($host, DNS_AAAA);
-            if (is_array($aaaa)) {
-                foreach ($aaaa as $r) {
-                    if (!empty($r['ipv6'])) {
-                        $ips[] = $r['ipv6'];
-                    }
-                }
+    /** The PLATFORMS key $host belongs to ('' when none), e.g. m.youtube.com → youtube.com. */
+    public static function platform_domain($host) {
+        $host = strtolower(rtrim((string) $host, '.'));
+        foreach (array_keys(self::platforms()) as $domain) {
+            if ($host === $domain || substr($host, -strlen($domain) - 1) === '.' . $domain) {
+                return $domain;
             }
         }
-        return array_values(array_unique($ips));
+        return '';
     }
 }
