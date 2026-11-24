@@ -6,6 +6,9 @@ if (!defined('ABSPATH')) {
 }
 
 class Logger {
+    /** Largest the current log may grow before the daily rotation to .log.1. */
+    const MAX_BYTES = 50 * 1024 * 1024;
+
     private $enabled;
     private $current_video_id;
     private $log_file;
@@ -58,6 +61,16 @@ class Logger {
 
         // Attempt to write to dedicated log file; fall back if unavailable
         if ($this->isWritable()) {
+            // Size cap until the daily rotation, so a flood of requests can't fill
+            // the disk (GitHub AI Scan #16); one marker line says it was reached.
+            clearstatcache(true, $this->log_file);
+            $size = (int) @filesize($this->log_file);
+            if ($size >= self::MAX_BYTES) {
+                return;
+            }
+            if ($size + strlen($log_message) >= self::MAX_BYTES) {
+                $log_message = sprintf("[%s] [ERROR] Log size limit (%d MB) reached; nothing more is logged until the daily rotation.\n", $timestamp, self::MAX_BYTES >> 20);
+            }
             // Use file_put_contents to avoid any handler buffering oddities with error_log and to
             // better support tools like `tail -f` in real-time
             @file_put_contents($this->log_file, $log_message, FILE_APPEND | LOCK_EX);

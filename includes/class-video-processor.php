@@ -207,30 +207,39 @@ class VideoProcessor {
 
     /**
      * yt-dlp options on every call (GitHub AI Scan #1/#8/#9/#4/#10):
-     *   - no generic extractor: yt-dlp only fetches URLs a site-specific
-     *     extractor claims (YouTube, TikTok, …), never an arbitrary host/redirect;
+     *   - only the extractors of the supported platforms (ytdlp_safe_opts());
      *   - no playlists (one submitted link = one video);
      *   - a hard cap on the downloaded media size.
      * The URL itself always follows "--", so a value starting with "-" can never
      * be read as an option.
      */
-    const YTDLP_SAFE_OPTS = '--use-extractors default,-generic --no-playlist --max-filesize 500M';
+    const YTDLP_SAFE_OPTS = '--no-playlist --max-filesize 500M';
 
     /**
-     * Media CDNs whose direct file links (e.g. a tweet's .mp4) only the generic
-     * extractor can read. For these hosts — and only these — it stays on.
-     * Extend via the vfc_generic_extractor_hosts filter.
+     * YTDLP_SAFE_OPTS plus --use-extractors with the extractors of all supported
+     * platforms (UrlGuard::PLATFORMS), so an embed on one platform can still
+     * point to another. Everything else stays unloaded: the extractors for
+     * self-hosted services on arbitrary domains (GitHub AI Scan #13) and the
+     * generic one, unless UrlGuard::allows_generic() permits it for this URL
+     * (a tweet's .mp4 on video.twimg.com, a LinkedIn post).
      */
-    const GENERIC_EXTRACTOR_HOSTS = ['video.twimg.com'];
-
-    /** YTDLP_SAFE_OPTS, with the generic extractor allowed for listed CDN hosts. */
     private static function ytdlp_safe_opts($url) {
-        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
-        $hosts = (array) apply_filters('vfc_generic_extractor_hosts', self::GENERIC_EXTRACTOR_HOSTS);
-        if ($host !== '' && in_array($host, array_map('strtolower', $hosts), true)) {
-            return str_replace('default,-generic', 'default', self::YTDLP_SAFE_OPTS);
+        $names = [];
+        foreach (UrlGuard::platforms() as $extractors) {
+            foreach (explode(',', (string) $extractors) as $name) {
+                $name = trim($name);
+                if ($name !== '' && $name !== 'generic') {
+                    $names[$name] = true;
+                }
+            }
         }
-        return self::YTDLP_SAFE_OPTS;
+        if (UrlGuard::allows_generic($url)) {
+            $names['generic'] = true;
+        }
+        if (!$names) {
+            $names['end'] = true; // nothing allowed: yt-dlp answers "Unsupported URL"
+        }
+        return '--use-extractors ' . escapeshellarg(implode(',', array_keys($names))) . ' ' . self::YTDLP_SAFE_OPTS;
     }
 
     /** Wall-clock cap for one yt-dlp run (download + conversion). */
