@@ -83,6 +83,9 @@ class SystemInfo {
             $rows[] = ['JS runtime', 'not found — YouTube may be limited', 'warn'];
         }
 
+        $private = PrivateStorage::dir();
+        $rows[] = ['Private folder (log, cookies.txt, temp)', $private, is_writable($private) ? 'ok' : 'warn'];
+        $rows[] = ['cookies.txt', file_exists(PrivateStorage::cookies_file()) ? 'present' : 'none (proxy only)', 'ok'];
         return $rows;
     }
 }

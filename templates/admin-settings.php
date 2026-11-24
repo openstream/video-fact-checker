@@ -1,3 +1,8 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+?>
 <div class="wrap">
     <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
 
@@ -271,8 +276,8 @@
                     <p class="description">
                         The proxy is used for YouTube: as a fallback when a video's subtitles can't be read from
                         this server's IP, and for the audio-download path above. Without a proxy, YouTube falls back
-                        to a <code>cookies.txt</code> file in the plugin directory
-                        (<code>wp-content/plugins/video-fact-checker/cookies.txt</code>).
+                        to a <code>cookies.txt</code> file in the private folder
+                        (<code><?php echo esc_html(\VideoFactChecker\PrivateStorage::cookies_file()); ?></code>).
                     </p>
                 </td>
             </tr>

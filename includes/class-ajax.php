@@ -1,6 +1,10 @@
 <?php
 namespace VideoFactChecker;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 class Ajax {
     private $logger;
     private $processor;
@@ -36,23 +40,22 @@ class Ajax {
 
     /**
      * Yes/No answer to "would you pay to check longer videos?", shown when a
-     * video is too long. Goes to Slack; one answer per visitor and video per day.
+     * video is too long. Goes to Slack; a few answers per visitor per day (BotGuard::claim_feedback).
      */
     public function handle_premium_feedback() {
         if (!check_ajax_referer('vfc_nonce', 'nonce', false)) {
             $this->send_invalid_nonce();
             return;
         }
-        $answer = isset($_POST['answer']) ? sanitize_key($_POST['answer']) : '';
+        $answer = isset($_POST['answer']) ? sanitize_key(wp_unslash($_POST['answer'])) : '';
         if (!in_array($answer, ['yes', 'no'], true) || (new BotGuard($this->logger))->is_honeypot_filled()) {
             wp_send_json_error(['message' => 'Invalid answer.']);
             return;
         }
         $url = isset($_POST['url']) ? esc_url_raw(wp_unslash($_POST['url'])) : '';
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '';
-        $once = 'vfc_premium_fb_' . md5(wp_salt('nonce') . $ip . '|' . $url);
-        if (!get_transient($once)) {
-            set_transient($once, 1, DAY_IN_SECONDS);
+        // A few answers per visitor per day, plus a global cap — keyed by IP hash
+        // and day, not by the URL an attacker could vary (GitHub AI Scan #11).
+        if ((new BotGuard($this->logger))->claim_feedback()) {
             $this->logger->log("Premium feedback: {$answer} for {$url}");
             try {
                 (new Notifier($this->logger))->notify_premium_feedback($answer === 'yes', $url, Geo::current_country_code());
@@ -80,7 +83,7 @@ class Ajax {
             return;
         }
 
-        list($url, $nocache) = $this->clean_url(sanitize_text_field($_POST['url']));
+        list($url, $nocache) = $this->clean_url(sanitize_text_field(wp_unslash($_POST['url'])));
         if (!$this->processor->is_youtube_url($url)
             || !(bool) get_option('vfc_youtube_use_innertube', true)
             || (!$nocache && (new CacheManager())->get_cached_result($url))) {
@@ -89,15 +92,7 @@ class Ajax {
         }
 
         $video_id = YouTubeCaptions::extract_video_id($url);
-        $captions = new YouTubeCaptions($this->logger);
-        $probe = $video_id !== '' ? $captions->probe($video_id) : null;
-        if ($probe === null && $video_id !== '') {
-            // Refused to this server (LOGIN_REQUIRED is per video): ask via the proxy.
-            $proxy = $this->processor->build_youtube_proxy();
-            if ($proxy !== '') {
-                $probe = $captions->probe($video_id, $proxy);
-            }
-        }
+        $probe = $video_id !== '' ? $this->preflight_probe($video_id) : null;
         $rejection = ($probe && !$probe['has_captions'])
             ? $this->no_caption_rejection($probe['duration'])
             : null;
@@ -118,6 +113,35 @@ class Ajax {
             $this->logger->log("Failed to send decline notification: " . $e->getMessage(), 'error');
         }
         wp_send_json_success(['ok' => false, 'too_long' => true, 'message' => $rejection->get_user_message()]);
+    }
+
+    /**
+     * Caption probe for the preflight, cached per video for 6 h and only within
+     * BotGuard's preflight allowance (GitHub AI Scan #7): repeated or scripted
+     * calls no longer trigger outbound requests, let alone proxy traffic.
+     * Returns the probe array, or null when it can't tell.
+     */
+    private function preflight_probe($video_id) {
+        $cache_key = 'vfc_pf_' . md5($video_id);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached['probe'];
+        }
+        if (!(new BotGuard($this->logger))->claim_preflight()) {
+            return null; // "can't tell" — the run itself is limited by claim_fresh_check()
+        }
+        $captions = new YouTubeCaptions($this->logger);
+        $probe = $captions->probe($video_id);
+        if ($probe === null) {
+            // Refused to this server (LOGIN_REQUIRED is per video): ask via the proxy.
+            $proxy = $this->processor->build_youtube_proxy();
+            if ($proxy !== '') {
+                $probe = $captions->probe($video_id, $proxy);
+            }
+        }
+        // Cache answers and "can't tell" alike; a miss would just repeat the cost.
+        set_transient($cache_key, ['probe' => $probe], 6 * HOUR_IN_SECONDS);
+        return $probe;
     }
 
     /**
@@ -163,8 +187,8 @@ class Ajax {
         $url = $raw_url;
 
         // Parse URL to handle nocache parameter robustly
-        $parsed_url = parse_url($raw_url);
-        if (isset($parsed_url['query'])) {
+        $parsed_url = wp_parse_url($raw_url);
+        if (is_array($parsed_url) && isset($parsed_url['query'], $parsed_url['scheme'], $parsed_url['host'])) {
             $query_params = [];
             parse_str($parsed_url['query'], $query_params);
 
@@ -255,7 +279,15 @@ class Ajax {
             // Best-effort; '' when it can't be resolved (see Geo). Stored per run.
             $country_code = Geo::current_country_code();
 
-            list($url, $nocache) = $this->clean_url(sanitize_text_field($_POST['url']));
+            list($url, $nocache) = $this->clean_url(sanitize_text_field(wp_unslash($_POST['url'])));
+
+            // Only public http(s) URLs reach yt-dlp (GitHub AI Scan #1/#8/#9).
+            $url_rejection = UrlGuard::rejection($url);
+            if ($url_rejection !== '') {
+                $this->logger->log("URL rejected: " . $url_rejection, 'error');
+                wp_send_json_error(['code' => 'invalid_url', 'message' => $url_rejection]);
+                return;
+            }
 
             // Correlate this run
             $request_id = substr(md5($url . microtime(true) . wp_rand()), 0, 8);
@@ -350,21 +382,11 @@ class Ajax {
                     if ($rejection) {
                         throw $rejection;
                     }
-                    $audio_file = $this->processor->download_video($url);
-                    $this->set_status('transcribing');
-                    $transcription = $this->transcriber->transcribe($audio_file);
-                    if (file_exists($audio_file)) {
-                        unlink($audio_file);
-                    }
+                    $transcription = $this->download_and_transcribe($url);
                 }
             } else {
                 $this->set_status('downloading');
-                $audio_file = $this->processor->download_video($url);
-                $this->set_status('transcribing');
-                $transcription = $this->transcriber->transcribe($audio_file);
-                if (file_exists($audio_file)) {
-                    unlink($audio_file);
-                }
+                $transcription = $this->download_and_transcribe($url);
             }
 
             $this->logger->log("Transcript source: " . $transcript_source);
@@ -559,14 +581,30 @@ class Ajax {
         }
     }
 
+    /**
+     * Audio download + Whisper. The temp file is removed even when the
+     * transcription fails (e.g. over Whisper's 25 MB): GitHub AI Scan #4/#10.
+     */
+    private function download_and_transcribe($url) {
+        $audio_file = $this->processor->download_video($url);
+        try {
+            $this->set_status('transcribing');
+            return $this->transcriber->transcribe($audio_file);
+        } finally {
+            if (is_string($audio_file) && file_exists($audio_file)) {
+                wp_delete_file($audio_file);
+            }
+        }
+    }
+
     public function handle_update_status() {
         try {
-            if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'vfc_nonce')) {
+            if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'vfc_nonce')) {
                 $this->send_invalid_nonce();
                 return;
             }
 
-            $status = sanitize_text_field($_POST['status']);
+            $status = isset($_POST['status']) ? sanitize_key(wp_unslash($_POST['status'])) : '';
             // Your status update logic here...
             wp_send_json_success(['status' => $status]);
         } catch (\Exception $e) {
@@ -576,7 +614,7 @@ class Ajax {
 
     public function handle_check_progress() {
         try {
-            if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'vfc_nonce')) {
+            if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'vfc_nonce')) {
                 $this->send_invalid_nonce();
                 return;
             }

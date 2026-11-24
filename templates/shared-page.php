@@ -1,4 +1,7 @@
 <?php
+if (!defined('ABSPATH')) {
+    exit;
+}
 /**
  * Share page (/share/<code>/) rendered inside the site theme, so it carries the
  * normal Twenty Sixteen header nav and the Openstream/Claude footer credit — the
@@ -13,7 +16,7 @@ get_header();
                 <h1 class="entry-title">Video Fact Check Results</h1>
             </header>
             <div class="entry-content vfc-shared-content">
-                <?php echo $content; ?>
+                <?php echo $content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- markup from templates/shared-result.php, which escapes every value ?>
             </div>
         </article>
     </main>

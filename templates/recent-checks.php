@@ -1,4 +1,7 @@
 <?php
+if (!defined('ABSPATH')) {
+    exit;
+}
 /**
  * "Recently fact-checked" list, shown under the form on the home page.
  * Expects $vfc_recent — an array of cache rows (id, short_url, video_title,
@@ -35,7 +38,7 @@ if (empty($vfc_recent_items)) {
         <li class="vfc-recent-item">
             <a class="vfc-recent-link" href="<?php echo esc_url($vfc_url); ?>">
                 <?php if ($vfc_platform !== '') : ?>
-                <span class="vfc-recent-icon" aria-hidden="true"><?php echo \VideoFactChecker\PlatformIcon::svg($vfc_platform, 20); ?></span>
+                <span class="vfc-recent-icon" aria-hidden="true"><?php echo \VideoFactChecker\PlatformIcon::svg($vfc_platform, 20); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static SVG, values escaped inside svg() ?></span>
                 <?php endif; ?>
                 <span class="vfc-recent-text">
                     <span class="vfc-recent-name"><?php echo esc_html($vfc_label); ?></span>

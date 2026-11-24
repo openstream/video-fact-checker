@@ -133,7 +133,7 @@ jQuery(document).ready(function($) {
                     const errorMessage = response.data ? response.data.message : 'An unknown error occurred';
                     // Limits, rejected requests, too long / no speech aren't faults the team looks into.
                     const code = response.data ? response.data.code : '';
-                    const expected = ['rate_limited', 'rejected', 'too_long', 'no_speech'].indexOf(code) !== -1;
+                    const expected = ['rate_limited', 'rejected', 'too_long', 'no_speech', 'invalid_url'].indexOf(code) !== -1;
                     displayError(errorMessage, !expected, code === 'too_long' ? videoUrl : '');
                 }
             })

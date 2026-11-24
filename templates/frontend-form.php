@@ -1,3 +1,8 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+?>
 <div class="video-fact-checker-form">
     <form id="vfc-form">
         <div class="form-group">
