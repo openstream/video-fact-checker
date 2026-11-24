@@ -28,11 +28,11 @@ class Admin {
     }
 
     public function register_settings() {
-        register_setting('vfc_settings', 'vfc_openai_api_key');
-        register_setting('vfc_settings', 'vfc_enable_logging');
-        register_setting('vfc_settings', 'vfc_openai_model');
-        register_setting('vfc_settings', 'vfc_openai_fallback_model');
-        register_setting('vfc_settings', 'vfc_output_format');
+        register_setting('vfc_settings', 'vfc_openai_api_key', ['type' => 'string', 'sanitize_callback' => 'sanitize_text_field']);
+        register_setting('vfc_settings', 'vfc_enable_logging', ['type' => 'boolean', 'sanitize_callback' => [$this, 'sanitize_checkbox']]);
+        register_setting('vfc_settings', 'vfc_openai_model', ['type' => 'string', 'sanitize_callback' => [$this, 'sanitize_model']]);
+        register_setting('vfc_settings', 'vfc_openai_fallback_model', ['type' => 'string', 'sanitize_callback' => [$this, 'sanitize_model']]);
+        register_setting('vfc_settings', 'vfc_output_format', ['type' => 'string', 'sanitize_callback' => [$this, 'sanitize_output_format']]);
 
         // YouTube caption/transcript strategy.
         register_setting('vfc_settings', 'vfc_youtube_use_innertube', [
@@ -118,6 +118,15 @@ class Admin {
     public function sanitize_slack_webhook($value) {
         $value = is_string($value) ? trim($value) : '';
         return preg_match('#^https://hooks\.slack\.com/#', $value) ? esc_url_raw($value) : '';
+    }
+
+    /** Model ids look like "gpt-6-luna" / "gpt-4.1-mini"; "none" = no fallback. */
+    public function sanitize_model($value) {
+        return preg_replace('/[^a-z0-9.\-_]/', '', strtolower(trim((string) $value)));
+    }
+
+    public function sanitize_output_format($value) {
+        return in_array($value, ['html', 'markdown'], true) ? $value : 'html';
     }
 
     /** Unchecked checkboxes aren't submitted, so absence means false. */
@@ -286,24 +295,29 @@ class Admin {
                 $summary_html .= ' <button class="button button-small vfc-toggle-summary" data-full="' . esc_attr($clean_analysis) . '">Show more</button>';
             }
 
+            // Every cell is escaped where it's built above.
+            // phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped
             echo '<tr>';
             echo '<td>' . $created . '</td>';
             echo '<td>' . $platform_cell . '</td>';
             echo '<td>' . $country_cell . '</td>';
             echo '<td>' . $descriptor_cell . '</td>';
             echo '<td>'
-                . '<button class="button button-small" onclick="window.open(\'' . $video_url . '\', \'_blank\')">Open</button>'
+                // A real link instead of window.open('…') in onclick: esc_url's
+                // &#039; is decoded before the JS runs (GitHub AI Scan #3).
+                . '<a class="button button-small" href="' . $video_url . '" target="_blank" rel="noopener noreferrer">Open</a>'
                 . ' <button class="button button-small vfc-copy" data-copy="' . esc_attr($video_url_raw) . '">Copy</button>'
                 . '</td>';
             echo '<td>'
                 . '<code>' . esc_html($short_slug) . '</code>'
-                . '<br/><button class="button button-small" onclick="window.open(\'' . esc_url($public_url) . '\', \'_blank\')">Open</button>'
+                . '<br/><a class="button button-small" href="' . esc_url($public_url) . '" target="_blank" rel="noopener">Open</a>'
                 . ' <button class="button button-small vfc-copy" data-copy="' . esc_attr($public_url) . '">Copy</button>'
                 . '</td>';
             echo '<td>' . esc_html($transcript_label) . '</td>';
             echo '<td>' . $cost_cell . '</td>';
             echo '<td>' . $summary_html . '</td>';
             echo '</tr>';
+            // phpcs:enable WordPress.Security.EscapeOutput.OutputNotEscaped
         }
         echo '</tbody></table>';
         echo '</div>'; // .vfc-table-scroll
@@ -374,14 +388,14 @@ class Admin {
             $public_url = home_url('/share/' . $short_url);
 
             echo '<div style="display:flex;align-items:flex-start;gap:10px;margin:0 0 12px;">';
-            echo '<span title="' . esc_attr($platform_label) . '" style="flex:none;margin-top:2px;">' . $icon . '</span>';
+            echo '<span title="' . esc_attr($platform_label) . '" style="flex:none;margin-top:2px;">' . $icon . '</span>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static SVG, values escaped inside svg()
             echo '<div style="min-width:0;flex:1;">';
             if ($descriptor !== '') {
                 echo '<div style="font-weight:600;line-height:1.3;">' . esc_html($descriptor) . '</div>';
             } else {
                 echo '<div style="font-weight:600;overflow-wrap:anywhere;">' . esc_html($row->video_url) . '</div>';
             }
-            echo '<div style="color:#666;font-size:12px;margin:2px 0;">' . $created . ' · ' . esc_html($platform_label) . '</div>';
+            echo '<div style="color:#666;font-size:12px;margin:2px 0;">' . $created . ' · ' . esc_html($platform_label) . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $created is esc_html'd above
             echo '<div style="font-size:12px;">'
                 . '<a href="' . esc_url($public_url) . '" target="_blank" rel="noopener">Open fact check</a>'
                 . ' · <a href="' . esc_url($video_url) . '" target="_blank" rel="noopener">Source</a>'

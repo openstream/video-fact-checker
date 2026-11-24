@@ -43,10 +43,27 @@ Logging can be enabled/disabled via:
 - OpenAI API key
 - Local or hosting environment with ffmpeg and yt-dlp installed
 - For YouTube videos on servers:
-  - Either a valid `cookies.txt` file in the plugin directory (`wp-content/plugins/video-fact-checker/cookies.txt`),
-    or configure a proxy in Settings > Fact Checker. If `cookies.txt` is missing, the plugin will require a proxy for YouTube.
+  - Either configure a proxy in Settings > Fact Checker (recommended), or put a valid `cookies.txt` into the plugin's
+    **private folder** (`wp-content/uploads/vfc-private-<random>/cookies.txt`; the exact path is shown under
+    Settings > Fact Checker > System information). Never put `cookies.txt` into the plugin directory: everything there
+    can be downloaded over the web. If neither a proxy nor `cookies.txt` is available, YouTube videos without
+    subtitles can't be downloaded.
 
 Note: You may need to update the `cookies.txt` file periodically when authentication expires.
+
+### Private folder (logs, cookies, temporary audio)
+
+Since v0.27.0 the log (`video-fact-checker.log`, rotated daily to `.log.1`), `cookies.txt` and the temporary audio
+files live in `wp-content/uploads/vfc-private-<random>/`. The folder gets a deny-all `.htaccess` (Apache) and a random
+name (for servers that ignore `.htaccess`, e.g. nginx). To keep it outside the web root entirely, define the path in
+`wp-config.php`:
+
+```php
+define('VFC_PRIVATE_DIR', '/var/lib/video-fact-checker');
+```
+
+Updating from an older version moves `wp-content/video-fact-checker.log(.1)`, the plugin's `cookies.txt` and
+`temp/` there automatically.
 
 ## License
 

@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.26.0
+ * Version: 0.27.0
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,9 +31,9 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.26.0');
+define('VFC_VERSION', '0.27.0');
 // Bump when the DB schema changes so existing installs migrate on the next load.
-define('VFC_DB_VERSION', 11);
+define('VFC_DB_VERSION', 12);
 
 // Autoloader fallback if Composer is not installed
 spl_autoload_register(function ($class) {
@@ -307,6 +307,7 @@ register_activation_hook(__FILE__, function() {
     // Create/upgrade the fact check cache table (includes cost columns).
     VideoFactChecker\CacheManager::ensure_schema();
     update_option('vfc_db_version', VFC_DB_VERSION);
+    VideoFactChecker\PrivateStorage::migrate_legacy_files();
 
     // Create upload directory
     $upload_dir = wp_upload_dir();
@@ -418,6 +419,10 @@ add_action('init', function() {
         VideoFactChecker\CacheManager::ensure_schema();
         update_option('vfc_db_version', VFC_DB_VERSION);
 
+        // v12 (0.27.0): move the log (+ .log.1), cookies.txt and temp/ out of
+        // their public places into the private folder (GitHub AI Scan #2, #5).
+        VideoFactChecker\PrivateStorage::migrate_legacy_files();
+
         // One-off: estimate costs for historical rows once, after the cost columns
         // exist. Idempotent (only touches rows without total_cost) and guarded by a
         // flag so it never re-runs.
@@ -524,7 +529,7 @@ function vfc_template_redirect() {
         // 301 old → new share codes before doing anything else.
         $redirects = vfc_share_redirects();
         if (isset($redirects[$short_url])) {
-            wp_redirect(home_url('/share/' . $redirects[$short_url] . '/'), 301);
+            wp_safe_redirect(home_url('/share/' . $redirects[$short_url] . '/'), 301);
             exit;
         }
 
@@ -675,7 +680,7 @@ function vfc_emit_share_meta_tags($result, $canonical_url) {
         $out .= '<meta name="twitter:card" content="summary">' . "\n";
         $out .= '<meta name="twitter:title" content="' . esc_attr($title) . '">' . "\n";
         $out .= '<meta name="twitter:description" content="' . esc_attr($social_desc) . '">' . "\n";
-        echo $out;
+        echo $out; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every value above is esc_attr/esc_url'd
     }, 1);
 }
 

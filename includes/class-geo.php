@@ -104,7 +104,7 @@ class Geo {
      * is introduced.
      */
     private static function client_ip() {
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? trim((string) $_SERVER['REMOTE_ADDR']) : '';
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? trim(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR']))) : '';
         return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
     }
 

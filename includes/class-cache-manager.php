@@ -1,6 +1,15 @@
 <?php
 namespace VideoFactChecker;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+// Plugin Check flags every query here because the table name is interpolated.
+// It is always $wpdb->prefix . 'vfc_cache' (never user input), and every value
+// goes through $wpdb->prepare().
+// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+
 class CacheManager {
     private $wpdb;
     private $table_name;
@@ -154,10 +163,11 @@ class CacheManager {
      * sitemap. Excludes the temporary "temp_…" short URLs used by nocache runs.
      */
     public function count_sitemap_rows() {
-        return (int) $this->wpdb->get_var(
+        return (int) $this->wpdb->get_var($this->wpdb->prepare(
             "SELECT COUNT(*) FROM {$this->table_name}
-             WHERE short_url IS NOT NULL AND short_url <> '' AND short_url NOT LIKE 'temp\\_%'"
-        );
+             WHERE short_url IS NOT NULL AND short_url <> '' AND short_url NOT LIKE %s",
+            $this->wpdb->esc_like('temp_') . '%'
+        ));
     }
 
     /**
@@ -169,9 +179,10 @@ class CacheManager {
         $offset = max(0, (int) $offset);
         $sql = $this->wpdb->prepare(
             "SELECT short_url, created_at FROM {$this->table_name}
-             WHERE short_url IS NOT NULL AND short_url <> '' AND short_url NOT LIKE 'temp\\_%'
+             WHERE short_url IS NOT NULL AND short_url <> '' AND short_url NOT LIKE %s
              ORDER BY created_at DESC, id DESC
              LIMIT %d OFFSET %d",
+            $this->wpdb->esc_like('temp_') . '%',
             $limit,
             $offset
         );
@@ -353,7 +364,7 @@ class CacheManager {
         do {
             $url_id = '';
             for ($i = 0; $i < 6; $i++) {
-                $url_id .= $characters[rand(0, strlen($characters) - 1)];
+                $url_id .= $characters[wp_rand(0, strlen($characters) - 1)];
             }
             $exists = $this->wpdb->get_var(
                 $this->wpdb->prepare(

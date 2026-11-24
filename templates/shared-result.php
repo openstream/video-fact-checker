@@ -1,4 +1,7 @@
 <?php
+if (!defined('ABSPATH')) {
+    exit;
+}
 // One-line descriptor of the video: its title if we captured one, otherwise a
 // short summary derived from the analysis — same helper the admin list uses.
 $vfc_descriptor = \VideoFactChecker\PlatformIcon::describe(
@@ -28,7 +31,7 @@ list($vfc_toc, $vfc_analysis_html) = \VideoFactChecker\FactChecker::build_toc(
     <div id="analysis-result">
         <h3>Fact Check Analysis</h3>
         <?php if ($vfc_toc !== '') : ?>
-        <?php echo $vfc_toc; // built from trusted headings, already escaped ?>
+        <?php echo wp_kses_post($vfc_toc); ?>
         <?php endif; ?>
         <div class="content"><?php echo wp_kses_post($vfc_analysis_html); ?></div>
     </div>

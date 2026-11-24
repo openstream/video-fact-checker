@@ -1,6 +1,10 @@
 <?php
 namespace VideoFactChecker;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 class Logger {
     private $enabled;
     private $current_video_id;
@@ -10,8 +14,9 @@ class Logger {
         $this->enabled = get_option('vfc_enable_logging', false);
         $this->current_video_id = null;
         
-        // Set log file path in wp-content directory
-        $this->log_file = WP_CONTENT_DIR . '/video-fact-checker.log';
+        // Non-public folder (see PrivateStorage); used to be wp-content/, where
+        // the log was downloadable by anyone (GitHub AI Scan #2).
+        $this->log_file = PrivateStorage::log_file();
 
         // Best-effort ensure the log file exists and is writable
         $this->ensureLogFile();
@@ -146,8 +151,8 @@ class Logger {
     }
 
     private function ensureLogFile() {
-        // If wp-content is not writable, we cannot create the file
-        if (!is_dir(WP_CONTENT_DIR) || !is_writable(WP_CONTENT_DIR)) {
+        $dir = dirname($this->log_file);
+        if (!is_dir($dir) || !is_writable($dir)) {
             return;
         }
         // Create file if it doesn't exist
@@ -164,6 +169,6 @@ class Logger {
             return is_writable($this->log_file);
         }
         // If file doesn't exist, check directory writability
-        return is_writable(WP_CONTENT_DIR);
+        return is_writable(dirname($this->log_file));
     }
 }
