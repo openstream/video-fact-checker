@@ -2,6 +2,9 @@
 namespace VideoFactChecker;
 
 class TranscriptionService {
+    /** Overall cap for one Whisper upload + transcription. */
+    const TIMEOUT_SECONDS = 300;
+
     private $api_key;
     private $logger;
 
@@ -31,6 +34,10 @@ class TranscriptionService {
         curl_setopt($ch, CURLOPT_URL, 'https://api.openai.com/v1/audio/transcriptions');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
+        // A stalled upload must not hold a PHP worker forever (GitHub AI Scan #20).
+        // 300 s covers a full 25 MB file (~69 min of audio) with room to spare.
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_TIMEOUT, self::TIMEOUT_SECONDS);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Authorization: Bearer ' . $this->api_key
         ]);

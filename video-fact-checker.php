@@ -3,7 +3,7 @@
  * Plugin Name: Video Fact Checker
  * Plugin URI: https://github.com/nickweisser/video-fact-checker
  * Description: Transcribe and fact-check videos from social media
- * Version: 0.28.1
+ * Version: 0.28.2
  * Author: Nick Weisser
  * Author URI: https://gravatar.com/nickweisser
  * License: GPL v2 or later
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
 define('VFC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VFC_PLUGIN_URL', plugin_dir_url(__FILE__));
 // Keep in sync with the "Version:" plugin header above (single source for display).
-define('VFC_VERSION', '0.28.1');
+define('VFC_VERSION', '0.28.2');
 // Bump when the DB schema changes so existing installs migrate on the next load.
 define('VFC_DB_VERSION', 12);
 
@@ -534,16 +534,17 @@ function vfc_template_redirect() {
         }
 
         $logger = new VideoFactChecker\Logger();
-        $logger->log("Handling share URL: " . $short_url);
-
-        // Debug the exact short URL being looked up
-        $logger->log("Looking up exact short URL: '" . $short_url . "'");
 
         // Look the result up first. An unknown/deleted code must serve a real 404
-        // (so search engines deindex it), not a 200 "not found" page.
-        $vfc_meta_result = (new VideoFactChecker\CacheManager())->get_by_short_url($short_url);
+        // (so search engines deindex it), not a 200 "not found" page. vfc_short_url
+        // is a public query var (?vfc_short_url=…), so anything that isn't a short
+        // code shape is a 404 straight away and never reaches the log (GitHub AI Scan #21).
+        $valid_code = is_string($short_url) && preg_match('/^[A-Za-z0-9_]{1,32}$/', $short_url) === 1;
+        $vfc_meta_result = $valid_code ? (new VideoFactChecker\CacheManager())->get_by_short_url($short_url) : null;
         if (!$vfc_meta_result) {
-            $logger->log("Share URL not found, serving 404: '" . $short_url . "'");
+            if ($valid_code) {
+                $logger->log("Share URL not found, serving 404: '" . $short_url . "'");
+            }
             global $wp_query;
             status_header(404);
             nocache_headers();
