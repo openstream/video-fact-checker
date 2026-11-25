@@ -94,9 +94,12 @@ class Ajax {
 
         $video_id = YouTubeCaptions::extract_video_id($url);
         $probe = $video_id !== '' ? $this->preflight_probe($video_id) : null;
-        $rejection = ($probe && !$probe['has_captions'])
-            ? $this->no_caption_rejection($probe['duration'])
-            : null;
+        $rejection = null;
+        if ($probe && !$probe['has_captions']) {
+            $rejection = $this->no_caption_rejection($probe['duration']);
+        } elseif ($probe && $probe['duration'] > YouTubeCaptions::MAX_SECONDS) {
+            $rejection = YouTubeCaptions::too_long($probe['duration']); // #19
+        }
         if (!$rejection) {
             wp_send_json_success(['ok' => true]);
             return;
@@ -587,7 +590,7 @@ class Ajax {
             // Over the length limit: the page offers the premium-interest question.
             // Too little speech is the video's nature, not a fault to look into.
             $code = '';
-            if (strpos($stage, 'download limit') !== false) {
+            if (strpos($stage, 'download limit') !== false || strpos($technical, 'TOO_LONG') === 0) {
                 $code = 'too_long';
             } elseif ($stage === 'Too little speech') {
                 $code = 'no_speech';

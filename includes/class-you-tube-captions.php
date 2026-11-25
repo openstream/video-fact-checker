@@ -39,6 +39,17 @@ class YouTubeCaptions {
 
     const PLAYER_URL = 'https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false';
 
+    /**
+     * Longest captioned video we fact-check. Captions cost no Whisper, but the
+     * whole transcript is read into memory and sent to OpenAI as one prompt
+     * (GitHub AI Scan #19). Checked before the track is downloaded.
+     */
+    const MAX_SECONDS = 3 * HOUR_IN_SECONDS;
+
+    /** Safety nets for when YouTube reports no duration: track size and transcript length. */
+    const MAX_TRACK_BYTES = 20 * 1024 * 1024;
+    const MAX_TRANSCRIPT_CHARS = 250000; // ~3 h of fast speech
+
     public function __construct($logger = null) {
         $this->logger = $logger ?: new Logger();
     }
@@ -126,8 +137,17 @@ class YouTubeCaptions {
                 );
             }
 
+            if ($duration > self::MAX_SECONDS) {
+                $this->logger->log("InnerTube [{$label}/{$client['clientName']}]: captions found, but duration={$duration}s is over the limit");
+                throw self::too_long($duration);
+            }
+
             $track = $this->pick_caption_track($tracks);
             $transcript = $this->fetch_track_text($track['baseUrl'], $proxy);
+            if (mb_strlen($transcript) > self::MAX_TRANSCRIPT_CHARS) {
+                $this->logger->log(sprintf("InnerTube [%s/%s]: transcript of %d chars is over the limit", $label, $client['clientName'], mb_strlen($transcript)));
+                throw self::too_long($duration);
+            }
 
             if ($transcript === '') {
                 $last_status = 'EMPTY_CAPTIONS';
@@ -161,6 +181,19 @@ class YouTubeCaptions {
             "YouTube didn't return subtitles for this video.",
             "YouTube captions (InnerTube, {$label})",
             $technical !== '' ? $technical : 'no usable client response'
+        );
+    }
+
+    /**
+     * The refusal for a captioned video over MAX_SECONDS. technical starts with
+     * "TOO_LONG" so callers pass it on instead of trying the proxy or a download.
+     */
+    public static function too_long($duration) {
+        $hours = (int) (self::MAX_SECONDS / HOUR_IN_SECONDS);
+        return new ProcessingException(
+            sprintf("This video is too long to fact-check. Please try a video of up to %d hours.", $hours),
+            "YouTube: over the {$hours}-hour limit for videos with subtitles",
+            "TOO_LONG|duration={$duration}"
         );
     }
 
@@ -348,6 +381,7 @@ class YouTubeCaptions {
             'headers'     => ['User-Agent' => 'Mozilla/5.0 (compatible; VideoFactChecker/1.0)'],
             'timeout'     => 15,
             'redirection' => 2,
+            'limit_response_size' => self::MAX_TRACK_BYTES,
         ]);
         if (is_wp_error($response)) {
             $this->logger->log("InnerTube GET error: " . $response->get_error_message(), 'error');
@@ -375,6 +409,11 @@ class YouTubeCaptions {
         \curl_setopt($ch, CURLOPT_URL, $url);
         \curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         \curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        // Same size cap as the direct path (limit_response_size): abort past it.
+        \curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+        \curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function ($ch, $dl_total, $dl_now) {
+            return $dl_now > self::MAX_TRACK_BYTES ? 1 : 0;
+        });
         \curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         \curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         \curl_setopt($ch, CURLOPT_PROXY, $proxy);
