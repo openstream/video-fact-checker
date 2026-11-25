@@ -38,7 +38,6 @@ class UrlGuard {
         'instagram.com'   => 'instagram.*',
         'x.com'           => 'twitter.*',
         'twitter.com'     => 'twitter.*',
-        't.co'            => 'twitter.*',
         'video.twimg.com' => 'generic',
         'facebook.com'    => 'facebook.*',
         'fb.watch'        => 'facebook.*',
@@ -56,6 +55,14 @@ class UrlGuard {
         'odysee.com'      => 'lbry.*',
         't.me'            => 'telegram:embed',
     ];
+
+    /**
+     * Extractors that only resolve a redirect/shortlink (t.co, facebook.com/l.php).
+     * They match the platform's name patterns but follow HTTP redirects to any
+     * host, so they are always excluded (GitHub AI Scan #18). Shortlinks are
+     * refused outright; visitors can paste the resolved x.com URL instead.
+     */
+    const EXCLUDED_EXTRACTORS = ['twitter:shortener', 'FacebookRedirectURL'];
 
     /**
      * Where the generic extractor may run (domain => path regex): direct media

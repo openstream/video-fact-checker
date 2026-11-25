@@ -63,6 +63,9 @@ class VideoProcessor {
             return $this->caption_result($r, 'innertube-direct');
         } catch (ProcessingException $e) {
             $tech = $e->get_technical();
+            if (strpos($tech, 'TOO_LONG') === 0) {
+                throw $e; // over the caption length limit: no proxy, no download
+            }
             // "Playable but no captions" is definitive — trying the proxy won't
             // conjure subtitles. Signal the caller to consider audio download.
             if (strpos($tech, 'NO_CAPTIONS') === 0) {
@@ -86,6 +89,9 @@ class VideoProcessor {
             return $this->caption_result($r, 'innertube-proxy');
         } catch (ProcessingException $e) {
             $tech = $e->get_technical();
+            if (strpos($tech, 'TOO_LONG') === 0) {
+                throw $e;
+            }
             if (strpos($tech, 'NO_CAPTIONS') === 0) {
                 $this->last_caption_duration = $this->duration_from_technical($tech);
                 $this->last_title = $this->title_from_technical($tech) ?: $this->last_title;
@@ -219,7 +225,8 @@ class VideoProcessor {
      * YTDLP_SAFE_OPTS plus --use-extractors with the extractors of all supported
      * platforms (UrlGuard::PLATFORMS), so an embed on one platform can still
      * point to another. Everything else stays unloaded: the extractors for
-     * self-hosted services on arbitrary domains (GitHub AI Scan #13) and the
+     * self-hosted services on arbitrary domains (GitHub AI Scan #13), the
+     * redirect resolvers in UrlGuard::EXCLUDED_EXTRACTORS (#18) and the
      * generic one, unless UrlGuard::allows_generic() permits it for this URL
      * (a tweet's .mp4 on video.twimg.com, a LinkedIn post).
      */
@@ -238,6 +245,9 @@ class VideoProcessor {
         }
         if (!$names) {
             $names['end'] = true; // nothing allowed: yt-dlp answers "Unsupported URL"
+        }
+        foreach (UrlGuard::EXCLUDED_EXTRACTORS as $name) {
+            $names['-' . $name] = true; // after the includes, so it wins (#18)
         }
         return '--use-extractors ' . escapeshellarg(implode(',', array_keys($names))) . ' ' . self::YTDLP_SAFE_OPTS;
     }
